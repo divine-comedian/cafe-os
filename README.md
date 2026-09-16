@@ -7,14 +7,14 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 ## Current server status
 
 - Hermes Agent is installed per-user at `~/.hermes/hermes-agent`.
-- The default provider is OpenRouter using `openrouter/auto`.
+- The default provider is OpenRouter using `qwen/qwen3.8-flash`.
 - OpenRouter routing excludes providers that may store or train on request data.
 - Any future trusted terminal workflow runs in a Docker sandbox with only this repository mounted and container networking disabled.
 - Speech-to-text is enabled with the local provider.
 - Telegram uses Hermes' built-in adapter; Discord is disabled for the prototype.
 - Telegram accepts messages from any user. Its public toolset excludes shell, file-write, cron, messaging, and shared-memory access.
 - Remote admin slash commands are disabled; public users receive only the documented safe command set.
-- The gateway service is not started until the OpenRouter key and Telegram bot token are configured.
+- The gateway runs as an enabled per-user systemd service and starts automatically at boot.
 - A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports; its `public` schema has no application tables.
 
 ## Finish setup

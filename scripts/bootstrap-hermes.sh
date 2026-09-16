@@ -22,7 +22,7 @@ fi
   "numpy==2.4.3"
 
 "$hermes_cmd" config set model.provider openrouter
-"$hermes_cmd" config set model.default openrouter/auto
+"$hermes_cmd" config set model.default qwen/qwen3.8-flash
 "$hermes_cmd" config set model.base_url https://openrouter.ai/api/v1
 "$hermes_cmd" config set provider_routing.sort price
 "$hermes_cmd" config set provider_routing.data_collection deny

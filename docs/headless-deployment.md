@@ -22,7 +22,7 @@ Create an API key at [OpenRouter Keys](https://openrouter.ai/keys), then store i
 hermes config set OPENROUTER_API_KEY 'sk-or-v1-...'
 ```
 
-The configured main model is `openrouter/auto`, allowing OpenRouter to choose a model for each request. Routing is price-first, requires parameter support, and sets `data_collection: deny`. Change the model later from a chat with `/model`, or globally with:
+The configured main model is `qwen/qwen3.8-flash` through OpenRouter. Routing is price-first, requires parameter support, and sets `data_collection: deny`. Change the model later from a chat with `/model`, or globally with:
 
 ```bash
 hermes config set model.default 'provider/model-id'
