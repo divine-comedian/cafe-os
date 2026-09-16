@@ -87,7 +87,9 @@ The interface keeps required entry fields short and shows an exact review step b
 - Green-coffee lot: name, variety, and optional origin. Weight and amount belong to purchases rather than the reusable lot identity.
 - Roast batch: lot, timestamp, green input, roasted output, and optional duration.
 
-Purchases and roast batches are created as drafts. Confirming either record is a separate action with its own review dialog.
+Purchases and roast batches created in the frontend are confirmed by the initial Save. Their tables show an Edit action for later corrections; saving an edit updates the record and leaves it confirmed. There is no separate operator-facing status or confirmation step. Draft and void states remain available internally for partial MCP capture and audit safety.
+
+The roast form displays the selected lot's purchased, already-used, and available green weight. Available green coffee is the sum of confirmed purchases for a lot minus the green input of every non-void roast for that lot. Both the frontend and API reject a roast input above the available weight, and the database repeats the check under a per-lot lock to prevent concurrent saves from overbooking inventory.
 
 The UI derives but does not persist:
 

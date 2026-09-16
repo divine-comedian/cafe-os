@@ -4,13 +4,15 @@ import {
   IdParamsType,
   RoastBatchCreate,
   RoastBatchCreateSchema,
+  RoastBatchConfirm,
+  RoastBatchConfirmSchema,
   RoastBatchListQuery,
   RoastBatchListQueryType,
   RoastBatchPatch,
   RoastBatchPatchSchema,
 } from "../schemas.js";
 import { CafeStore, Row } from "../store.js";
-import { notFound } from "../errors.js";
+import { ApiError, notFound } from "../errors.js";
 import {
   hasOwn,
   normalizeDecimal,
@@ -21,6 +23,7 @@ import {
   listEnvelope,
   pagination,
   recordEnvelope,
+  requireAvailableGreenCoffee,
   requirePositiveDecimal,
   requireRow,
   roastMetrics,
@@ -29,6 +32,36 @@ import {
 
 export interface RoastBatchRoutesOptions {
   store: CafeStore;
+}
+
+function confirmedRoastInput(body: RoastBatchConfirm): Row {
+  const greenInput = requirePositiveDecimal(
+    normalizeDecimal(body.green_input_kg, "green_input_kg"),
+    "green_input_kg",
+  );
+  const roastedOutput = requirePositiveDecimal(
+    normalizeDecimal(body.roasted_output_kg, "roasted_output_kg"),
+    "roasted_output_kg",
+  );
+  if (Number(roastedOutput) > Number(greenInput)) {
+    throw new ApiError(
+      422,
+      "VALIDATION_ERROR",
+      "roasted_output_kg cannot exceed green_input_kg.",
+      { field: "roasted_output_kg" },
+    );
+  }
+  return {
+    green_coffee_lot_id: body.green_coffee_lot_id,
+    name: normalizeDisplayText(body.name),
+    roasted_at: body.roasted_at,
+    green_input_kg: greenInput,
+    roasted_output_kg: roastedOutput,
+    duration_seconds: body.duration_seconds ?? null,
+    machine_settings: body.machine_settings ?? null,
+    notes: normalizeNotes(body.notes),
+    status: "confirmed",
+  };
 }
 
 export const roastBatchRoutes: FastifyPluginAsyncTypebox<RoastBatchRoutesOptions> = async (
@@ -92,17 +125,25 @@ export const roastBatchRoutes: FastifyPluginAsyncTypebox<RoastBatchRoutesOptions
         "green coffee lot",
         request.body.green_coffee_lot_id,
       );
+      const greenInput =
+        request.body.green_input_kg === undefined || request.body.green_input_kg === null
+          ? null
+          : requirePositiveDecimal(
+              normalizeDecimal(request.body.green_input_kg, "green_input_kg"),
+              "green_input_kg",
+            );
+      if (greenInput !== null) {
+        await requireAvailableGreenCoffee(
+          store,
+          request.body.green_coffee_lot_id,
+          greenInput,
+        );
+      }
       const input: Row = {
         green_coffee_lot_id: request.body.green_coffee_lot_id,
         name: normalizeDisplayText(request.body.name),
         roasted_at: request.body.roasted_at ?? null,
-        green_input_kg:
-          request.body.green_input_kg === undefined || request.body.green_input_kg === null
-            ? null
-            : requirePositiveDecimal(
-                normalizeDecimal(request.body.green_input_kg, "green_input_kg"),
-                "green_input_kg",
-              ),
+        green_input_kg: greenInput,
         roasted_output_kg:
           request.body.roasted_output_kg === undefined ||
           request.body.roasted_output_kg === null
@@ -119,6 +160,28 @@ export const roastBatchRoutes: FastifyPluginAsyncTypebox<RoastBatchRoutesOptions
     },
   );
 
+  app.post<{ Body: RoastBatchConfirm }>(
+    "/roast-batches/confirmed",
+    { schema: { tags: ["Roast batches"], body: RoastBatchConfirmSchema } },
+    async (request, reply) => {
+      await requireRow(
+        store,
+        "green_coffee_lots",
+        "green coffee lot",
+        request.body.green_coffee_lot_id,
+      );
+      const input = confirmedRoastInput(request.body);
+      await requireAvailableGreenCoffee(
+        store,
+        request.body.green_coffee_lot_id,
+        String(input.green_input_kg),
+      );
+      return reply.code(201).send(
+        recordEnvelope(await store.create("roast_batches", input)),
+      );
+    },
+  );
+
   app.patch<{ Params: IdParamsType; Body: RoastBatchPatch }>(
     "/roast-batches/:id",
     {
@@ -129,6 +192,12 @@ export const roastBatchRoutes: FastifyPluginAsyncTypebox<RoastBatchRoutesOptions
       },
     },
     async (request) => {
+      const existing = await requireRow(
+        store,
+        "roast_batches",
+        "roast batch",
+        request.params.id,
+      );
       const input: Row = {};
       if (request.body.green_coffee_lot_id !== undefined) {
         await requireRow(
@@ -166,6 +235,24 @@ export const roastBatchRoutes: FastifyPluginAsyncTypebox<RoastBatchRoutesOptions
         input.machine_settings = request.body.machine_settings;
       }
       if (hasOwn(request.body, "notes")) input.notes = normalizeNotes(request.body.notes);
+      const effectiveLotId = String(
+        input.green_coffee_lot_id ?? existing.green_coffee_lot_id,
+      );
+      const effectiveGreenInput = hasOwn(input, "green_input_kg")
+        ? input.green_input_kg
+        : existing.green_input_kg;
+      if (
+        existing.status !== "void" &&
+        effectiveGreenInput !== null &&
+        effectiveGreenInput !== undefined
+      ) {
+        await requireAvailableGreenCoffee(
+          store,
+          effectiveLotId,
+          String(effectiveGreenInput),
+          request.params.id,
+        );
+      }
       const row = await store.patch("roast_batches", request.params.id, input);
       if (!row) throw notFound("roast batch", request.params.id);
       return recordEnvelope(row);
@@ -177,6 +264,36 @@ export const roastBatchRoutes: FastifyPluginAsyncTypebox<RoastBatchRoutesOptions
     { schema: { tags: ["Roast batches"], params: IdParams } },
     async (request) => {
       const row = await store.patch("roast_batches", request.params.id, { status: "confirmed" });
+      if (!row) throw notFound("roast batch", request.params.id);
+      return recordEnvelope(row);
+    },
+  );
+
+  app.put<{ Params: IdParamsType; Body: RoastBatchConfirm }>(
+    "/roast-batches/:id/confirm",
+    {
+      schema: {
+        tags: ["Roast batches"],
+        params: IdParams,
+        body: RoastBatchConfirmSchema,
+      },
+    },
+    async (request) => {
+      await requireRow(store, "roast_batches", "roast batch", request.params.id);
+      await requireRow(
+        store,
+        "green_coffee_lots",
+        "green coffee lot",
+        request.body.green_coffee_lot_id,
+      );
+      const input = confirmedRoastInput(request.body);
+      await requireAvailableGreenCoffee(
+        store,
+        request.body.green_coffee_lot_id,
+        String(input.green_input_kg),
+        request.params.id,
+      );
+      const row = await store.patch("roast_batches", request.params.id, input);
       if (!row) throw notFound("roast batch", request.params.id);
       return recordEnvelope(row);
     },

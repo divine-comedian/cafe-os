@@ -97,6 +97,20 @@ export const PurchasePatchSchema = Type.Object(
   patchOptions,
 );
 
+export const PurchaseConfirmSchema = Type.Object(
+  {
+    provider_id: Uuid,
+    green_coffee_lot_id: Uuid,
+    purchased_at: Type.Optional(Type.Union([DateString, Type.Null()])),
+    received_weight_kg: DecimalInput,
+    total_amount: DecimalInput,
+    currency: Type.Optional(Type.String({ default: "MXN" })),
+    payment_method: Type.Optional(NullableString),
+    notes: Type.Optional(NullableString),
+  },
+  options,
+);
+
 export const GreenCoffeeCreateSchema = Type.Object(
   {
     name: Type.String(),
@@ -153,6 +167,24 @@ export const RoastBatchPatchSchema = Type.Object(
   patchOptions,
 );
 
+export const RoastBatchConfirmSchema = Type.Object(
+  {
+    green_coffee_lot_id: Uuid,
+    name: Type.Optional(NullableString),
+    roasted_at: DateTimeString,
+    green_input_kg: DecimalInput,
+    roasted_output_kg: DecimalInput,
+    duration_seconds: Type.Optional(
+      Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+    ),
+    machine_settings: Type.Optional(
+      Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+    ),
+    notes: Type.Optional(NullableString),
+  },
+  options,
+);
+
 export const PurchaseListQuery = Type.Object(
   {
     ...paginationProperties,
@@ -197,10 +229,12 @@ export type PurchaseWithGreenCoffeeLotCreate = Static<
   typeof PurchaseWithGreenCoffeeLotCreateSchema
 >;
 export type PurchasePatch = Static<typeof PurchasePatchSchema>;
+export type PurchaseConfirm = Static<typeof PurchaseConfirmSchema>;
 export type GreenCoffeeCreate = Static<typeof GreenCoffeeCreateSchema>;
 export type GreenCoffeePatch = Static<typeof GreenCoffeePatchSchema>;
 export type RoastBatchCreate = Static<typeof RoastBatchCreateSchema>;
 export type RoastBatchPatch = Static<typeof RoastBatchPatchSchema>;
+export type RoastBatchConfirm = Static<typeof RoastBatchConfirmSchema>;
 export type PurchaseListQueryType = Static<typeof PurchaseListQuery>;
 export type GreenCoffeeListQueryType = Static<typeof GreenCoffeeListQuery>;
 export type RoastBatchListQueryType = Static<typeof RoastBatchListQuery>;

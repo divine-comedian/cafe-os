@@ -52,6 +52,64 @@ export function recordEnvelope(data: unknown) {
   return { data };
 }
 
+async function listAll(
+  store: CafeStore,
+  table: TableName,
+  filters: Record<string, unknown>,
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  let offset = 0;
+  while (true) {
+    const page = await store.list(table, filters, 100, offset);
+    rows.push(...page);
+    if (page.length < 100) return rows;
+    offset += 100;
+  }
+}
+
+export async function greenCoffeeInventory(
+  store: CafeStore,
+  greenCoffeeLotId: string,
+  excludeRoastId?: string,
+): Promise<{ purchasedKg: number; reservedKg: number; availableKg: number }> {
+  const [purchases, roasts] = await Promise.all([
+    listAll(store, "purchases", { green_coffee_lot_id: greenCoffeeLotId }),
+    listAll(store, "roast_batches", { green_coffee_lot_id: greenCoffeeLotId }),
+  ]);
+  const purchasedKg = purchases
+    .filter((purchase) => purchase.status === "confirmed")
+    .reduce((sum, purchase) => sum + Number(purchase.received_weight_kg || 0), 0);
+  const reservedKg = roasts
+    .filter((roast) => roast.status !== "void" && roast.id !== excludeRoastId)
+    .reduce((sum, roast) => sum + Number(roast.green_input_kg || 0), 0);
+  return {
+    purchasedKg,
+    reservedKg,
+    availableKg: Math.max(0, purchasedKg - reservedKg),
+  };
+}
+
+export async function requireAvailableGreenCoffee(
+  store: CafeStore,
+  greenCoffeeLotId: string,
+  requestedKg: string,
+  excludeRoastId?: string,
+): Promise<void> {
+  const inventory = await greenCoffeeInventory(store, greenCoffeeLotId, excludeRoastId);
+  if (Number(requestedKg) > inventory.availableKg + 1e-9) {
+    throw new ApiError(
+      422,
+      "INSUFFICIENT_GREEN_COFFEE",
+      `Green input exceeds the ${inventory.availableKg.toFixed(3)} kg available for this lot.`,
+      {
+        field: "green_input_kg",
+        requested_kg: Number(requestedKg),
+        available_kg: inventory.availableKg,
+      },
+    );
+  }
+}
+
 export function requirePositiveDecimal(value: string | null, field: string): string {
   if (value === null || Number(value) <= 0) {
     throw new ApiError(422, "VALIDATION_ERROR", `${field} must be greater than zero.`, {

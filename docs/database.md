@@ -74,9 +74,15 @@ base_roasted_cost_per_kg =
 weighted_green_unit_cost_per_kg =
   sum(confirmed purchase total_amount) /
   sum(confirmed purchase received_weight_kg)
+
+available_green_kg =
+  sum(confirmed purchase received_weight_kg) -
+  sum(non-void roast green_input_kg)
 ```
 
-Draft and void purchases do not enter the weighted cost. The base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
+Draft and void purchases do not enter the weighted cost or available supply. Non-void roast batches with a green input reserve that weight, including partial drafts captured through the API, so later roasts cannot overbook the lot. Database triggers serialize inventory-changing writes per lot and reject both excess roast input and purchase changes that would reduce supply below already-reserved roast input.
+
+The base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
 
 ## Security
 
