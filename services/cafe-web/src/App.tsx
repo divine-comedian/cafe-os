@@ -81,6 +81,7 @@ function Workspace({ supabase, session }: { supabase: SupabaseClient; session: S
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [entry, setEntry] = useState<EntryKind | null>(null);
+  const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
   const [confirm, setConfirm] = useState<{ path: string; title: string; detail: string } | null>(null);
   const api = useMemo(() => new CafeApi(() => session.access_token), [session.access_token]);
   const load = useCallback(async () => {
@@ -96,12 +97,18 @@ function Workspace({ supabase, session }: { supabase: SupabaseClient; session: S
   async function save(kind: EntryKind, payload: Record<string, unknown>) {
     const endpoint = { provider: "providers", purchase: "purchases/with-green-coffee-lot", lot: "green-coffee-lots", roast: "roast-batches" }[kind];
     await api.create(endpoint, payload); setEntry(null);
-    setNotice(kind === "purchase" ? "Compra ligada al lote verde. Revisa la compra antes de confirmarla." : kind === "roast" ? "Borrador guardado. Revísalo antes de confirmarlo." : "Registro guardado.");
+    setNotice(kind === "purchase" ? "Compra guardada como borrador. Edítala para completar y confirmar." : kind === "roast" ? "Borrador guardado. Revísalo antes de confirmarlo." : "Registro guardado.");
     await load(); window.setTimeout(() => setNotice(""), 4000);
   }
   async function confirmRecord() {
     if (!confirm) return;
     await api.action(confirm.path); setConfirm(null); setNotice("Registro confirmado."); await load();
+    window.setTimeout(() => setNotice(""), 4000);
+  }
+  async function savePurchaseEdit(payload: Record<string, unknown>) {
+    if (!editingPurchase) return;
+    await api.update(`purchases/${editingPurchase.id}/confirm`, payload, "PUT");
+    setEditingPurchase(null); setNotice("Compra actualizada y confirmada."); await load();
     window.setTimeout(() => setNotice(""), 4000);
   }
   const heading = copy[view];
@@ -110,9 +117,10 @@ function Workspace({ supabase, session }: { supabase: SupabaseClient; session: S
     <main className="workspace"><header className="mobile-header"><Brand /><button className="text-button" onClick={() => void supabase.auth.signOut()}>Salir</button></header><div className="workspace-inner">
       <header className="page-header"><div><p className="eyebrow">{heading[0]}</p><h1>{heading[1]}</h1><p>{heading[2]}</p></div>{view !== "dashboard" && <button className="button button--primary" onClick={() => setEntry(view === "providers" ? "provider" : view === "purchases" ? "purchase" : view === "lots" ? "lot" : "roast")}>＋ Nuevo registro</button>}</header>
       {notice && <div className="notice">{notice}</div>}{error && <div className="error-banner">{error}<button onClick={() => void load()}>Reintentar</button></div>}
-      {loading ? <section className="panel panel--loading"><Spinner text="Cargando registros…" /></section> : view === "dashboard" ? <Dashboard data={data} setView={setView} setEntry={setEntry} /> : <Records view={view} data={data} onConfirm={setConfirm} />}
+      {loading ? <section className="panel panel--loading"><Spinner text="Cargando registros…" /></section> : view === "dashboard" ? <Dashboard data={data} setView={setView} setEntry={setEntry} /> : <Records view={view} data={data} onConfirm={setConfirm} onEditPurchase={setEditingPurchase} />}
     </div><nav className="mobile-nav">{nav.map((item) => <button key={item.view} className={view === item.view ? "mobile-nav__active" : ""} onClick={() => setView(item.view)}><span>{item.icon}</span>{item.label}</button>)}</nav></main>
     {entry && <EntryModal kind={entry} data={data} onClose={() => setEntry(null)} onSave={save} />}
+    {editingPurchase && <EditPurchaseModal purchase={editingPurchase} data={data} onClose={() => setEditingPurchase(null)} onSave={savePurchaseEdit} />}
     {confirm && <ConfirmModal title={confirm.title} detail={confirm.detail} onClose={() => setConfirm(null)} onConfirm={confirmRecord} />}
   </div>;
 }
@@ -133,7 +141,7 @@ function Dashboard({ data, setView, setEntry }: { data: OperationsData; setView:
 function Stat({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <article className={"stat-card stat-card--" + tone}><span className="stat-card__dot" /><p>{label}</p><strong>{value}</strong><small>{detail}</small></article>; }
 function Flow({ n, label }: { n: number; label: string }) { return <div className="flow-item"><span>{label.slice(0,1)}</span><strong>{label}</strong><b>{n}</b></div>; }
 
-function Records({ view, data, onConfirm }: { view: Exclude<View, "dashboard">; data: OperationsData; onConfirm: (value: { path: string; title: string; detail: string }) => void }) {
+function Records({ view, data, onConfirm, onEditPurchase }: { view: Exclude<View, "dashboard">; data: OperationsData; onConfirm: (value: { path: string; title: string; detail: string }) => void; onEditPurchase: (purchase: Purchase) => void }) {
   const [search, setSearch] = useState("");
   const term = search.toLocaleLowerCase("es").trim();
   const provider = (id: string) => data.providers.find((item) => item.id === id)?.name || "Sin proveedor";
@@ -143,7 +151,7 @@ function Records({ view, data, onConfirm }: { view: Exclude<View, "dashboard">; 
   const items = view === "providers" ? data.providers.filter((x) => matches(x.name + " " + (x.region || ""))) : view === "purchases" ? data.purchases.filter((x) => { const purchasedLot = lot(x.green_coffee_lot_id); return matches(provider(x.provider_id) + " " + x.status + " " + (purchasedLot?.name || "") + " " + (purchasedLot?.origin || "") + " " + (purchasedLot?.variety || "")); }) : view === "lots" ? data.lots.filter((x) => matches(x.name + " " + (x.origin || "") + " " + x.variety)) : data.roasts.filter((x) => matches((x.name || "") + " " + (lot(x.green_coffee_lot_id)?.name || "") + " " + x.status));
   return <section className="panel records-panel"><div className="records-toolbar"><label className="search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar registros…" /></label><span>{items.length} registros</span></div>{items.length === 0 ? <Empty /> :
     view === "providers" ? <div className="record-list"><Head labels={["Proveedor","Región","Compras","Alta"]} className="provider-row" />{(items as Provider[]).map((x) => <div className="record-row provider-row" key={x.id}><Primary title={x.name} detail={"#" + short(x.id)} initials={x.name.slice(0,2)} /><span data-label="Región">{x.region || "—"}</span><span data-label="Compras">{data.purchases.filter((p) => p.provider_id === x.id).length}</span><span data-label="Alta">{showDate(x.created_at)}</span></div>)}</div> :
-    view === "purchases" ? <div className="record-list"><Head labels={["Proveedor","Café comprado","Peso","Monto","Estado",""]} className="purchase-row" />{(items as Purchase[]).map((x) => { const purchasedLot = lot(x.green_coffee_lot_id); return <div className="record-row purchase-row" key={x.id}><Primary title={provider(x.provider_id)} detail={showDate(x.purchased_at) + " · Compra #" + short(x.id)} /><span data-label="Café">{purchasedLot ? [purchasedLot.name,purchasedLot.variety,purchasedLot.origin].filter(Boolean).join(" · ") : "Sin lote ligado"}</span><strong data-label="Peso">{weight(x.received_weight_kg)}</strong><strong data-label="Monto">{money(x.total_amount, x.currency)}</strong><span data-label="Estado"><Status value={x.status} /></span><span>{x.status === "draft" && <button className="button button--small" onClick={() => onConfirm({ path: "purchases/" + x.id + "/confirm", title: "Confirmar compra", detail: provider(x.provider_id) + " · " + weight(x.received_weight_kg) + " de " + (purchasedLot?.variety || "café verde") + " · " + money(x.total_amount, x.currency) })}>Revisar</button>}</span></div>; })}</div> :
+    view === "purchases" ? <div className="record-list"><Head labels={["Proveedor","Café comprado","Peso","Monto","Estado",""]} className="purchase-row" />{(items as Purchase[]).map((x) => { const purchasedLot = lot(x.green_coffee_lot_id); return <div className="record-row purchase-row" key={x.id}><Primary title={provider(x.provider_id)} detail={showDate(x.purchased_at) + " · Compra #" + short(x.id)} /><span data-label="Café">{purchasedLot ? [purchasedLot.name,purchasedLot.variety,purchasedLot.origin].filter(Boolean).join(" · ") : "Sin lote ligado"}</span><strong data-label="Peso">{weight(x.received_weight_kg)}</strong><strong data-label="Monto">{money(x.total_amount, x.currency)}</strong><span data-label="Estado"><Status value={x.status} /></span><span>{x.status === "draft" && <button className="button button--small" onClick={() => onEditPurchase(x)}>Editar</button>}</span></div>; })}</div> :
     view === "lots" ? <div className="record-list"><Head labels={["Lote","Compras","Peso confirmado","Costo promedio","Proveedores"]} className="lot-row" />{(items as CoffeeLot[]).map((x) => { const associated = lotPurchases(x.id); const confirmed = associated.filter((item) => item.status === "confirmed"); const totalWeight = confirmed.reduce((sum,item) => sum + Number(item.received_weight_kg),0); const unitCost = weightedGreenUnitCost(associated); const providers = [...new Set(associated.map((item) => provider(item.provider_id)))].join(", "); return <div className="record-row lot-row" key={x.id}><Primary title={x.name} detail={[x.origin,x.variety].filter(Boolean).join(" · ")} /><span data-label="Compras">{associated.length}</span><strong data-label="Peso">{weight(totalWeight)}</strong><span data-label="Costo">{unitCost === null ? "—" : money(unitCost) + "/kg"}</span><span data-label="Proveedores">{providers || "—"}</span></div>; })}</div> :
     <div className="record-list"><Head labels={["Tostado","Entrada → salida","Merma","Costo base","Estado",""]} className="roast-row" />{(items as RoastBatch[]).map((x) => { const parent = lot(x.green_coffee_lot_id); const unitCost = weightedGreenUnitCost(lotPurchases(x.green_coffee_lot_id)); const m = roastMetrics(x.green_input_kg,x.roasted_output_kg,unitCost); return <div className="record-row roast-row" key={x.id}><Primary title={x.name || parent?.name || "Tostado #" + short(x.id)} detail={showDate(x.roasted_at,true)} /><span data-label="Pesos">{weight(x.green_input_kg)} → {weight(x.roasted_output_kg)}</span><strong data-label="Merma">{m.lossPct === null ? "—" : m.lossPct.toFixed(1) + "%"}</strong><span data-label="Costo">{m.roastedCostPerKg === null ? "—" : money(m.roastedCostPerKg) + "/kg"}</span><span data-label="Estado"><Status value={x.status} /></span><span>{x.status === "draft" && <button className="button button--small" onClick={() => onConfirm({ path: "roast-batches/" + x.id + "/confirm", title: "Confirmar tostado", detail: (parent?.name || "Lote") + " · " + weight(x.green_input_kg) + " → " + weight(x.roasted_output_kg) })}>Revisar</button>}</span></div>; })}</div>}
   </section>;
@@ -151,6 +159,26 @@ function Records({ view, data, onConfirm }: { view: Exclude<View, "dashboard">; 
 function Head({ labels, className }: { labels: string[]; className: string }) { return <div className={"record-row record-row--head " + className}>{labels.map((label,index) => <span key={label + index}>{label}</span>)}</div>; }
 function Primary({ title, detail, initials }: { title: string; detail: string; initials?: string }) { return <span className="primary-cell">{initials && <span className="record-avatar">{initials.toUpperCase()}</span>}<span><strong>{title}</strong><small>{detail}</small></span></span>; }
 function Empty() { return <div className="empty-state"><span>○</span><h3>No hay registros</h3><p>Agrega el primero o cambia tu búsqueda.</p></div>; }
+
+function EditPurchaseModal({ purchase, data, onClose, onSave }: { purchase: Purchase; data: OperationsData; onClose: () => void; onSave: (payload: Record<string, unknown>) => Promise<void> }) {
+  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const raw = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const payload = { provider_id: raw.provider_id, green_coffee_lot_id: raw.green_coffee_lot_id, purchased_at: raw.purchased_at || null, received_weight_kg: raw.received_weight_kg, total_amount: raw.total_amount, currency: purchase.currency || "MXN", payment_method: raw.payment_method || null, notes: raw.notes ? String(raw.notes).trim() : null };
+    try { await onSave(payload); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo actualizar la compra."); setBusy(false); }
+  }
+  return <Modal onClose={onClose} title="Editar compra" eyebrow="Guardar confirma la compra"><form className="entry-form" onSubmit={submit}><div className="form-grid">
+    <Field label="Proveedor" full><select name="provider_id" required defaultValue={purchase.provider_id} autoFocus>{data.providers.map((x) => <option key={x.id} value={x.id}>{x.name}{x.region ? " · " + x.region : ""}</option>)}</select></Field>
+    <Field label="Lote de café verde" full><select name="green_coffee_lot_id" required defaultValue={purchase.green_coffee_lot_id}>{data.lots.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.variety}{x.origin ? " · " + x.origin : ""}</option>)}</select></Field>
+    <Field label="Fecha de compra" optional><input name="purchased_at" type="date" defaultValue={purchase.purchased_at || ""} /></Field>
+    <Field label="Total pagado" unit={purchase.currency || "MXN"}><input name="total_amount" type="number" min="0" step="0.01" defaultValue={purchase.total_amount ?? ""} required /></Field>
+    <Field label="Peso comprado" unit="kg"><input name="received_weight_kg" type="number" min="0.001" step="0.001" defaultValue={purchase.received_weight_kg} required /></Field>
+    <Field label="Forma de pago" optional><select name="payment_method" defaultValue={purchase.payment_method || ""}><option value="">Sin especificar</option><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option>{purchase.payment_method && !["transferencia","efectivo","tarjeta"].includes(purchase.payment_method) && <option value={purchase.payment_method}>{purchase.payment_method}</option>}</select></Field>
+    <Field label="Notas" optional full><input name="notes" defaultValue={purchase.notes || ""} placeholder="Información adicional" /></Field>
+    <p className="form-note field--full">Al guardar, la compra quedará confirmada y entrará al peso y costo promedio del lote.</p>
+  </div>{error && <div className="form-error">{error}</div>}<footer className="modal-actions"><button type="button" className="button button--ghost" onClick={onClose} disabled={busy}>Cancelar</button><button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar y confirmar"}</button></footer></form></Modal>;
+}
 
 function EntryModal({ kind, data, onClose, onSave }: { kind: EntryKind; data: OperationsData; onClose: () => void; onSave: (kind: EntryKind, payload: Record<string, unknown>) => Promise<void> }) {
   const [proposal, setProposal] = useState<Record<string, unknown> | null>(null);

@@ -48,6 +48,7 @@ Purchases and roast batches also expose explicit confirmation and void actions:
 
 ```text
 POST /v1/purchases/{id}/confirm
+PUT  /v1/purchases/{id}/confirm  # update fields and confirm atomically
 POST /v1/purchases/{id}/void
 POST /v1/roast-batches/{id}/confirm
 POST /v1/roast-batches/{id}/void

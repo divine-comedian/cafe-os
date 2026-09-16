@@ -302,6 +302,50 @@ describe("Cafe API", () => {
     expect(response.json().data.currency).toBe("MXN");
   });
 
+  it("updates and confirms a draft purchase in one request", async () => {
+    const store = new MemoryStore();
+    const providerId = crypto.randomUUID();
+    const lotId = crypto.randomUUID();
+    const purchaseId = crypto.randomUUID();
+    store.rows.providers.push({ id: providerId, name: "Test" });
+    store.rows.green_coffee_lots.push({ id: lotId, name: "Lot", variety: "typica" });
+    store.rows.purchases.push({
+      id: purchaseId,
+      provider_id: providerId,
+      green_coffee_lot_id: lotId,
+      received_weight_kg: "1.000",
+      total_amount: null,
+      currency: "MXN",
+      status: "draft",
+    });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: `/v1/purchases/${purchaseId}/confirm`,
+      headers: { authorization: "Bearer test-api-token" },
+      payload: {
+        provider_id: providerId,
+        green_coffee_lot_id: lotId,
+        purchased_at: null,
+        received_weight_kg: "12.500",
+        total_amount: "1875.00",
+        currency: "MXN",
+        payment_method: " TRANSFERENCIA ",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      status: "confirmed",
+      purchased_at: null,
+      received_weight_kg: "12.500",
+      total_amount: "1875.00",
+      payment_method: "transferencia",
+    });
+  });
+
   it("serves generated OpenAPI JSON", async () => {
     const app = await buildApp({ config, store: new MemoryStore(), logger: false });
     apps.push(app);

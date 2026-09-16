@@ -87,7 +87,7 @@ The interface keeps required entry fields short and shows an exact review step b
 - Green-coffee lot: name, variety, and optional origin. Weight and amount belong to purchases rather than the reusable lot identity.
 - Roast batch: lot, timestamp, green input, roasted output, and optional duration.
 
-Purchases and roast batches are created as drafts. Confirming either record is a separate action with its own review dialog.
+Purchases and roast batches are created as drafts. A draft purchase has an Edit action; saving that form updates and confirms it in one operation without another confirmation dialog. Roast batches retain their separate review-and-confirm action.
 
 The UI derives but does not persist:
 
