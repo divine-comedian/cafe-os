@@ -24,6 +24,7 @@ import {
   requirePositiveDecimal,
   requireRow,
   roastMetrics,
+  weightedGreenUnitCost,
 } from "./helpers.js";
 
 export interface RoastBatchRoutesOptions {
@@ -62,13 +63,22 @@ export const roastBatchRoutes: FastifyPluginAsyncTypebox<RoastBatchRoutesOptions
     { schema: { tags: ["Roast batches"], params: IdParams } },
     async (request) => {
       const roast = await requireRow(store, "roast_batches", "roast batch", request.params.id);
-      const lot = await requireRow(
+      await requireRow(
         store,
         "green_coffee_lots",
         "green coffee lot",
         String(roast.green_coffee_lot_id),
       );
-      return recordEnvelope({ ...roast, metrics: roastMetrics(roast, lot) });
+      const purchases = await store.list(
+        "purchases",
+        { green_coffee_lot_id: roast.green_coffee_lot_id },
+        1000,
+        0,
+      );
+      return recordEnvelope({
+        ...roast,
+        metrics: roastMetrics(roast, weightedGreenUnitCost(purchases)),
+      });
     },
   );
 

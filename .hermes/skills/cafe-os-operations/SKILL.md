@@ -20,7 +20,7 @@ Use the Cafe OS MCP tools to read and, only with human approval, change the oper
 - Before every create, update, status change, upload, replacement, or deletion, show the exact proposed change and ask for explicit approval. A prior upload or chat message is evidence, not approval to write.
 - Mutation tools first persist a pending proposal without changing business data. Display its `canonical_arguments`. After approval, call that same tool with only `confirmation_id`; never reconstruct the fields.
 - Never invent provider IDs, dates, prices, quantities, currency, payment methods, lot details, roast measurements, or notes. Ask for missing required values.
-- Do not infer a missing green-coffee lot, even when only one lot exists. A roast requires the operator to name or identify its source lot. Before preparing a new green-coffee lot, obtain its unit cost per kg; ask instead of creating an incomplete proposal.
+- Do not infer a missing green-coffee lot, even when only one lot exists. A roast or purchase requires the operator to name or identify its lot. A purchase also requires a provider and received weight. A new green-coffee lot requires a name and variety. Ask for missing required facts instead of creating an incomplete proposal; omit unknown optional fields.
 - State units and currency on every operational number. Use MXN only when the user supplied no currency.
 - Preserve stored calendar dates as `YYYY-MM-DD`; do not localize or reorder their components.
 - Keep green input weight, roasted output weight, and packaged or sold weight distinct.
@@ -36,7 +36,7 @@ Hermes prefixes these tools with `mcp__cafe_os__`:
 - `discover_tools`: search only the Cafe catalog when the active subset lacks a capability. Use it at most once for a distinct capability.
 - `create_provider`: add a provider.
 - `create_purchase`: add an unconfirmed purchase draft.
-- `create_green_coffee_lot`: add a lot tied to a purchase.
+- `create_green_coffee_lot`: add a reusable lot identity; purchases link providers, lots, received weight, and cost.
 - `create_roast_batch`: add an unconfirmed roast draft.
 - `update_record`: patch any record type; send only confirmed changed fields.
 - `set_record_status`: confirm or void a purchase or roast batch.
@@ -57,13 +57,13 @@ Do not substitute shell, code execution, file inspection, web, memory, SQL, or d
 8. Keep purchases and roast batches as drafts until the human separately accepts the recorded facts. Then prepare and confirm `set_record_status`.
 9. Re-read only after an ambiguous timeout or response that lacks a stored record. Never assume a timed-out write failed.
 
-Preferred traceability order:
+Preferred traceability order (a lot may have more than one purchase):
 
 `provider → purchase → green_coffee_lot → roast_batch`
 
 For a traceability request by lot name, make exactly two bounded reads: resolve the lot with `name`, then call `query_records` for that lot UUID with `include: "traceability"`. Do not read the purchase, provider, or roasts separately.
 
-A provider cannot be deleted while purchases reference it; a purchase cannot be deleted while lots or a document reference it; a lot cannot be deleted while roast batches reference it. Remove dependencies only after separate explicit approval.
+A provider cannot be deleted while purchases reference it; a purchase cannot be deleted while a document references it; a lot cannot be deleted while purchases or roast batches reference it. Remove dependencies only after separate explicit approval.
 
 ## Operational calculations
 

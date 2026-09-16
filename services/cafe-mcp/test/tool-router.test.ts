@@ -91,7 +91,7 @@ describe("Cafe tool intent router", () => {
     expect(payload.tool_choice.function.name).toBe("select_cafe_tools");
     expect(payload.response_format).toBeUndefined();
     expect(payload.reasoning).toEqual({ enabled: false, exclude: true });
-    expect(payload.messages[0].content).toContain("without cost per kg requires user input");
+    expect(payload.messages[0].content).toContain("Green-coffee lots require a name and variety");
     expect(payload.messages[0].content).toContain("lookup_resource");
   });
 
@@ -116,7 +116,7 @@ describe("Cafe tool intent router", () => {
     ).resolves.toMatchObject({ ok: false, fallbackReason: "router_low_confidence" });
   });
 
-  it("removes green-coffee creation when unit cost is missing", async () => {
+  it("removes green-coffee creation when required variety is missing", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -124,11 +124,11 @@ describe("Cafe tool intent router", () => {
             name: "select_cafe_tools",
             arguments: JSON.stringify({
               intent: "incomplete_green_coffee_lot",
-              tool_ids: ["query_records", "create_green_coffee_lot"],
+              tool_ids: ["create_green_coffee_lot"],
               confidence: 0.97,
-              missing_required_fields: ["unit_cost_per_kg"],
-              requires_user_input: ["unit_cost_per_kg"],
-              lookup_resource: "purchase",
+              missing_required_fields: ["variety"],
+              requires_user_input: ["variety"],
+              lookup_resource: "unknown",
             }),
           } }] } }],
         }),
@@ -138,16 +138,16 @@ describe("Cafe tool intent router", () => {
 
     await expect(
       routeCafeTools(
-        { messages: [{ role: "user", content: "Registra un lote sin costo" }], tools },
+        { messages: [{ role: "user", content: "Registra el lote Lote feria de Chiapas" }], tools },
         config,
         fetchMock as typeof fetch,
       ),
     ).resolves.toMatchObject({
       ok: true,
-      toolIds: ["query_records"],
-      missingRequiredFields: ["unit_cost_per_kg"],
-      requiresUserInput: ["unit_cost_per_kg"],
-      lookupResource: "purchase",
+      toolIds: [],
+      missingRequiredFields: ["variety"],
+      requiresUserInput: ["variety"],
+      lookupResource: "unknown",
     });
   });
 

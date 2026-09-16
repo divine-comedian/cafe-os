@@ -7,6 +7,8 @@ import {
   PurchaseCreateSchema,
   PurchaseListQuery,
   PurchaseListQueryType,
+  PurchaseWithGreenCoffeeLotCreate,
+  PurchaseWithGreenCoffeeLotCreateSchema,
   PurchasePatch,
   PurchasePatchSchema,
 } from "../schemas.js";
@@ -16,6 +18,7 @@ import {
   hasOwn,
   normalizeCurrency,
   normalizeDecimal,
+  normalizeDisplayText,
   normalizeLabel,
   normalizeNotes,
 } from "../validation/normalize.js";
@@ -25,6 +28,7 @@ import {
   pagination,
   recordEnvelope,
   requireNonnegativeDecimal,
+  requirePositiveDecimal,
   requireRow,
 } from "./helpers.js";
 
@@ -46,6 +50,7 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
         "purchases",
         {
           provider_id: request.query.provider_id,
+          green_coffee_lot_id: request.query.green_coffee_lot_id,
           purchased_at: request.query.purchased_at,
           status: request.query.status,
         },
@@ -54,9 +59,95 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
       );
       return listEnvelope(rows, limit, offset, {
         provider_id: request.query.provider_id,
+        green_coffee_lot_id: request.query.green_coffee_lot_id,
         purchased_at: request.query.purchased_at,
         status: request.query.status,
       });
+    },
+  );
+
+  app.post<{ Body: PurchaseWithGreenCoffeeLotCreate }>(
+    "/purchases/with-green-coffee-lot",
+    {
+      schema: {
+        tags: ["Purchases", "Green coffee"],
+        body: PurchaseWithGreenCoffeeLotCreateSchema,
+      },
+    },
+    async (request, reply) => {
+      await requireRow(store, "providers", "provider", request.body.provider_id);
+      const amount = requireNonnegativeDecimal(
+        normalizeDecimal(request.body.total_amount, "total_amount"),
+        "total_amount",
+      );
+      const receivedWeight = requirePositiveDecimal(
+        normalizeDecimal(request.body.received_weight_kg, "received_weight_kg"),
+        "received_weight_kg",
+      );
+      const hasExistingLot = request.body.green_coffee_lot_id !== undefined;
+      const hasNewLot = request.body.new_green_coffee_lot !== undefined;
+      if (hasExistingLot === hasNewLot) {
+        throw new ApiError(
+          422,
+          "VALIDATION_ERROR",
+          "Provide exactly one of green_coffee_lot_id or new_green_coffee_lot.",
+        );
+      }
+      let greenCoffeeLot: Row;
+      let createdLotId: string | null = null;
+      if (request.body.green_coffee_lot_id) {
+        greenCoffeeLot = await requireRow(
+          store,
+          "green_coffee_lots",
+          "green coffee lot",
+          request.body.green_coffee_lot_id,
+        );
+      } else {
+        const newLot = request.body.new_green_coffee_lot!;
+        const name = normalizeDisplayText(newLot.name);
+        const variety = normalizeLabel(newLot.variety);
+        if (!name || !variety) {
+          const field = !name ? "new_green_coffee_lot.name" : "new_green_coffee_lot.variety";
+          throw new ApiError(422, "VALIDATION_ERROR", `${field} is required.`, { field });
+        }
+        greenCoffeeLot = await store.create("green_coffee_lots", {
+          name,
+          origin: normalizeLabel(newLot.origin),
+          variety,
+          notes: normalizeNotes(newLot.notes),
+        });
+        createdLotId = String(greenCoffeeLot.id);
+      }
+      try {
+        const purchase = await store.create("purchases", {
+          provider_id: request.body.provider_id,
+          green_coffee_lot_id: greenCoffeeLot.id,
+          ...(hasOwn(request.body, "purchased_at")
+            ? { purchased_at: request.body.purchased_at }
+            : {}),
+          received_weight_kg: receivedWeight,
+          total_amount: amount,
+          currency: normalizeCurrency(request.body.currency ?? "MXN"),
+          payment_method: normalizeLabel(request.body.payment_method),
+          notes: normalizeNotes(request.body.notes),
+        });
+        return reply
+          .code(201)
+          .send(recordEnvelope({ purchase, green_coffee_lot: greenCoffeeLot }));
+      } catch (error) {
+        if (createdLotId) {
+          const rolledBack = await store.delete("green_coffee_lots", createdLotId).catch(
+            () => false,
+          );
+          if (!rolledBack) {
+            request.log.error(
+              { greenCoffeeLotId: createdLotId },
+              "Could not roll back lot after purchase creation failed",
+            );
+          }
+        }
+        throw error;
+      }
     },
   );
 
@@ -72,10 +163,23 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
     { schema: { tags: ["Purchases"], body: PurchaseCreateSchema } },
     async (request, reply) => {
       await requireRow(store, "providers", "provider", request.body.provider_id);
+      await requireRow(
+        store,
+        "green_coffee_lots",
+        "green coffee lot",
+        request.body.green_coffee_lot_id,
+      );
       const amount = normalizeDecimal(request.body.total_amount, "total_amount");
       const input: Row = {
         provider_id: request.body.provider_id,
-        purchased_at: request.body.purchased_at,
+        green_coffee_lot_id: request.body.green_coffee_lot_id,
+        ...(hasOwn(request.body, "purchased_at")
+          ? { purchased_at: request.body.purchased_at }
+          : {}),
+        received_weight_kg: requirePositiveDecimal(
+          normalizeDecimal(request.body.received_weight_kg, "received_weight_kg"),
+          "received_weight_kg",
+        ),
         total_amount:
           amount === null ? null : requireNonnegativeDecimal(amount, "total_amount"),
         currency: normalizeCurrency(request.body.currency ?? "MXN"),
@@ -97,7 +201,22 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
         await requireRow(store, "providers", "provider", request.body.provider_id);
         input.provider_id = request.body.provider_id;
       }
-      if (request.body.purchased_at !== undefined) input.purchased_at = request.body.purchased_at;
+      if (request.body.green_coffee_lot_id !== undefined) {
+        await requireRow(
+          store,
+          "green_coffee_lots",
+          "green coffee lot",
+          request.body.green_coffee_lot_id,
+        );
+        input.green_coffee_lot_id = request.body.green_coffee_lot_id;
+      }
+      if (hasOwn(request.body, "purchased_at")) input.purchased_at = request.body.purchased_at;
+      if (request.body.received_weight_kg !== undefined) {
+        input.received_weight_kg = requirePositiveDecimal(
+          normalizeDecimal(request.body.received_weight_kg, "received_weight_kg"),
+          "received_weight_kg",
+        );
+      }
       if (hasOwn(request.body, "total_amount")) {
         const amount = normalizeDecimal(request.body.total_amount, "total_amount");
         input.total_amount =
@@ -141,9 +260,7 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
     { schema: { tags: ["Purchases"], params: IdParams } },
     async (request, reply) => {
       const purchase = await requireRow(store, "purchases", "purchase", request.params.id);
-      const lots = await store.count("green_coffee_lots", { purchase_id: request.params.id });
       const dependencies: Record<string, number> = {};
-      if (lots) dependencies.green_coffee_lots = lots;
       if (purchase.document_path) dependencies.document = 1;
       if (Object.keys(dependencies).length) {
         throw dependencyConflict("purchase", dependencies);

@@ -162,7 +162,7 @@ function selectionTool(allowedNames: CafeToolName[], maxTools: number) {
           tool_ids: {
             type: "array",
             items: { type: "string", enum: allowedNames },
-            minItems: 1,
+            minItems: 0,
             maxItems: maxTools,
             uniqueItems: true,
           },
@@ -170,10 +170,10 @@ function selectionTool(allowedNames: CafeToolName[], maxTools: number) {
           missing_required_fields: {
             type: "array",
             description:
-              "Required facts explicitly absent from the request. For a green-coffee lot without cost or price per kg, include unit_cost_per_kg.",
+              "Required facts explicitly absent from the request. Purchases require provider, green-coffee lot, and received weight; green-coffee lots require name and variety.",
             items: {
               type: "string",
-              enum: ["provider_id", "purchase_id", "green_coffee_lot_id", "unit_cost_per_kg", "target_id", "file_path"],
+              enum: ["name", "variety", "provider_id", "purchase_id", "green_coffee_lot_id", "received_weight_kg", "target_id", "file_path"],
             },
             maxItems: 6,
             uniqueItems: true,
@@ -184,7 +184,7 @@ function selectionTool(allowedNames: CafeToolName[], maxTools: number) {
               "Missing facts the user must supply because they cannot be resolved from a named stored record. Do not include an ID when the request names the record to look up.",
             items: {
               type: "string",
-              enum: ["provider_id", "purchase_id", "green_coffee_lot_id", "unit_cost_per_kg", "target_id", "file_path"],
+              enum: ["name", "variety", "provider_id", "purchase_id", "green_coffee_lot_id", "received_weight_kg", "target_id", "file_path"],
             },
             maxItems: 6,
             uniqueItems: true,
@@ -246,8 +246,9 @@ function parseSelection(
     ? record.lookup_resource as ToolRouterResult["lookupResource"]
     : "unknown";
   const requiredInputByTool: Partial<Record<CafeToolName, string[]>> = {
-    create_purchase: ["provider_id"],
-    create_green_coffee_lot: ["purchase_id", "unit_cost_per_kg"],
+    create_provider: ["name"],
+    create_purchase: ["provider_id", "green_coffee_lot_id", "received_weight_kg"],
+    create_green_coffee_lot: ["name", "variety"],
     create_roast_batch: ["green_coffee_lot_id"],
     update_record: ["target_id"],
     set_record_status: ["target_id"],
@@ -306,7 +307,7 @@ export async function routeCafeTools(
           {
             role: "system",
             content:
-              "You route Cafe OS operational requests. Select the smallest sufficient set of tool IDs. missing_required_fields lists absent API identifiers or facts. requires_user_input lists only facts the human must provide because they cannot be resolved from a named stored record; do not put an ID there when the user supplied a record name. lookup_resource is the record type query_records must resolve first. Include query_records whenever the request names an existing provider, purchase, green-coffee lot, or roast batch but does not supply its UUID. Include both query_records and the mutation tool for prepare, update, status, delete, and upload workflows that identify a stored record by name or date. A new green-coffee lot without cost per kg requires user input; a roast request with no lot name or ID requires green_coffee_lot_id from the user. A confirmation following a stored proposal needs only its mutation tool. Never choose tools outside the supplied catalog.",
+              "You route Cafe OS operational requests. Select the smallest sufficient set of tool IDs. missing_required_fields lists absent API identifiers or facts. requires_user_input lists only facts the human must provide because they cannot be resolved from a named stored record; do not put an ID there when the user supplied a record name. lookup_resource is the record type query_records must resolve first. Include query_records whenever the request names an existing provider, purchase, green-coffee lot, or roast batch but does not supply its UUID. Include both query_records and the mutation tool for complete prepare, update, status, delete, and upload workflows that identify a stored record by name or date. Purchases require a provider, green-coffee lot, and received weight; their date, amount, currency, payment method, and notes are optional. Green-coffee lots require a name and variety; origin and notes are optional. Providers require a name. Roasts require a green-coffee lot. If a human-supplied required fact is missing, omit the mutation tool and return it in requires_user_input; use an empty tool_ids array when no lookup is useful. A confirmation following a stored proposal needs only its mutation tool. Never choose tools outside the supplied catalog.",
           },
           { role: "user", content: `${context}\n\nAllowed Cafe catalog:\n${JSON.stringify(catalog)}` },
         ],

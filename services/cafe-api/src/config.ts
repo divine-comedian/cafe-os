@@ -1,5 +1,7 @@
 export interface Config {
   supabaseUrl: string;
+  supabasePublicUrl: string;
+  supabasePublishableKey: string;
   supabaseServiceRoleKey: string;
   apiToken: string;
   storageBucket: string;
@@ -29,6 +31,8 @@ function positiveInteger(name: string, fallback: number): number {
 export function loadConfig(): Config {
   return {
     supabaseUrl: required("SUPABASE_URL").replace(/\/$/, ""),
+    supabasePublicUrl: required("SUPABASE_PUBLIC_URL").replace(/\/$/, ""),
+    supabasePublishableKey: required("SUPABASE_PUBLISHABLE_KEY"),
     supabaseServiceRoleKey: required("SUPABASE_SERVICE_ROLE_KEY"),
     apiToken: required("CAFE_API_TOKEN"),
     storageBucket:

@@ -172,19 +172,24 @@ async function traceability(client: CafeApiPort, lotPayload: unknown): Promise<u
     : [objectData(lotPayload)].filter((row): row is Record<string, unknown> => row !== null);
   if (lots.length !== 1) return lotPayload;
   const lot = lots[0];
-  const purchaseId = typeof lot.purchase_id === "string" ? lot.purchase_id : "";
-  const purchasePayload = purchaseId ? await client.request("GET", `/purchases/${purchaseId}`) : null;
-  const purchase = objectData(purchasePayload);
-  const providerId = typeof purchase?.provider_id === "string" ? purchase.provider_id : "";
-  const providerPayload = providerId ? await client.request("GET", `/providers/${providerId}`) : null;
+  const purchasesPayload = await client.request(
+    "GET",
+    `/purchases?limit=50&offset=0&green_coffee_lot_id=${encodeURIComponent(String(lot.id))}`,
+  );
+  const purchases = arrayData(purchasesPayload);
+  const providerIds = [...new Set(purchases
+    .map((purchase) => purchase.provider_id)
+    .filter((id): id is string => typeof id === "string"))];
+  const providers = await Promise.all(providerIds.map(async (id) =>
+    objectData(await client.request("GET", `/providers/${encodeURIComponent(id)}`))));
   const roastsPayload = await client.request(
     "GET",
     `/roast-batches?limit=50&offset=0&green_coffee_lot_id=${encodeURIComponent(String(lot.id))}`,
   );
   return {
     data: {
-      provider: objectData(providerPayload),
-      purchase,
+      providers: providers.filter((provider): provider is Record<string, unknown> => provider !== null),
+      purchases,
       green_coffee_lot: lot,
       roast_batches: arrayData(roastsPayload),
     },
@@ -235,8 +240,7 @@ export function registerCafeTools(
         provider_id: uuid.optional().describe("Purchase-list filter"),
         provider_name: z.string().min(1).max(160).optional().describe("Purchase lookup: resolves one exact provider name inside this call"),
         purchased_at: z.string().date().optional().describe("Purchase-list calendar-date filter"),
-        purchase_id: uuid.optional().describe("Green-coffee-lot list filter"),
-        green_coffee_lot_id: uuid.optional().describe("Roast-batch list filter"),
+        green_coffee_lot_id: uuid.optional().describe("Purchase or roast-batch list filter"),
         status: status.optional().describe("Purchase or roast-batch list filter"),
         name: z.string().min(1).max(160).optional().describe("Case-insensitive partial display-name filter for providers, green-coffee lots, or roast batches"),
         include: z.literal("traceability").optional().describe("Only for one green-coffee lot; expands provider, purchase, lot, and roast batches"),
@@ -292,8 +296,8 @@ export function registerCafeTools(
         }
         const allowed: Record<Resource, string[]> = {
           provider: ["name"],
-          purchase: ["provider_id", "purchased_at", "status"],
-          green_coffee_lot: ["purchase_id", "name"],
+          purchase: ["provider_id", "green_coffee_lot_id", "purchased_at", "status"],
+          green_coffee_lot: ["name"],
           roast_batch: ["green_coffee_lot_id", "status", "name"],
         };
         const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
@@ -336,12 +340,14 @@ export function registerCafeTools(
         "Prepare a purchase-draft proposal without writing; never guess values. After approval, call this same tool with only confirmation_id to execute the stored fields once. The receipt is authoritative; do not re-read.",
       inputSchema: exactProposalSchema({
         provider_id: uuid.optional(),
-        purchased_at: z.string().date().optional().describe("Calendar date in YYYY-MM-DD format"),
+        green_coffee_lot_id: uuid.optional(),
+        purchased_at: z.string().date().nullable().optional().describe("Calendar date in YYYY-MM-DD format when known"),
+        received_weight_kg: decimal.optional().describe("Purchased green-coffee weight in kilograms"),
         total_amount: nullableDecimal.optional(),
         currency: z.string().optional().describe("ISO 4217 currency code; API default is MXN"),
         payment_method: nullableText.optional(),
         notes: nullableText.optional(),
-      }, ["provider_id", "purchased_at"]),
+      }, ["provider_id", "green_coffee_lot_id", "received_weight_kg"]),
       annotations: writeAnnotations,
     },
     async (input) => safely(() => pendingMutation(pending, "create_purchase", input, async (stored) =>
@@ -353,16 +359,13 @@ export function registerCafeTools(
     {
       title: "Cafe OS — Create green-coffee lot",
       description:
-        "Prepare a linked green-coffee-lot proposal without writing. Preserve the exact name and never infer values. After approval, call this same tool with only confirmation_id; its receipt is authoritative.",
+        "Prepare a reusable green-coffee-lot proposal without writing. Preserve the exact name and never infer its required variety. Purchases carry supplier, weight, and amount. After approval, call this same tool with only confirmation_id; its receipt is authoritative.",
       inputSchema: exactProposalSchema({
-        purchase_id: uuid.optional(),
-        name: nullableText.optional(),
+        name: z.string().min(1).optional(),
         origin: nullableText.optional(),
-        variety: nullableText.optional(),
-        received_weight_kg: decimal.optional(),
-        unit_cost_per_kg: decimal.optional(),
+        variety: z.string().min(1).optional(),
         notes: nullableText.optional(),
-      }, ["purchase_id", "received_weight_kg", "unit_cost_per_kg"]),
+      }, ["name", "variety"]),
       annotations: writeAnnotations,
     },
     async (input) => safely(() => pendingMutation(pending, "create_green_coffee_lot", input, async (stored) =>
@@ -393,18 +396,16 @@ export function registerCafeTools(
 
   const updateFields = z.object({
     provider_id: uuid.optional(),
-    purchase_id: uuid.optional(),
     green_coffee_lot_id: uuid.optional(),
     name: nullableText.optional(),
     region: nullableText.optional(),
-    purchased_at: z.string().date().optional(),
+    purchased_at: z.string().date().nullable().optional(),
     total_amount: nullableDecimal.optional(),
     currency: z.string().optional(),
     payment_method: nullableText.optional(),
     origin: nullableText.optional(),
     variety: nullableText.optional(),
     received_weight_kg: decimal.optional(),
-    unit_cost_per_kg: decimal.optional(),
     roasted_at: z.string().nullable().optional(),
     green_input_kg: nullableDecimal.optional(),
     roasted_output_kg: nullableDecimal.optional(),
@@ -420,8 +421,8 @@ export function registerCafeTools(
     if (value.confirmation_id !== undefined || !value.resource || !value.fields) return;
     const allowed: Record<Resource, Set<string>> = {
       provider: new Set(["name", "region", "notes"]),
-      purchase: new Set(["provider_id", "purchased_at", "total_amount", "currency", "payment_method", "notes"]),
-      green_coffee_lot: new Set(["purchase_id", "name", "origin", "variety", "received_weight_kg", "unit_cost_per_kg", "notes"]),
+      purchase: new Set(["provider_id", "green_coffee_lot_id", "purchased_at", "received_weight_kg", "total_amount", "currency", "payment_method", "notes"]),
+      green_coffee_lot: new Set(["name", "origin", "variety", "notes"]),
       roast_batch: new Set(["green_coffee_lot_id", "name", "roasted_at", "green_input_kg", "roasted_output_kg", "duration_seconds", "machine_settings", "notes"]),
     };
     if (!Object.keys(value.fields).length) {

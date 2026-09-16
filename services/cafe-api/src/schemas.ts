@@ -17,21 +17,16 @@ export const NullableString = Type.Union([Type.String(), Type.Null()]);
 export const NullableDecimal = Type.Union([DecimalInput, Type.Null()]);
 
 export const IdParams = Type.Object({ id: Uuid }, options);
-export const PaginationQuery = Type.Object(
-  {
-    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 50 })),
-    offset: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
-  },
-  options,
-);
-
-const paginationFields = {
+const paginationProperties = {
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 50 })),
   offset: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
 };
+
+export const PaginationQuery = Type.Object(paginationProperties, options);
+
 const nameField = Type.Optional(Type.String({ minLength: 1, maxLength: 160 }));
 
-export const ProviderListQuery = Type.Object({ ...paginationFields, name: nameField }, options);
+export const ProviderListQuery = Type.Object({ ...paginationProperties, name: nameField }, options);
 
 export const ProviderCreateSchema = Type.Object(
   {
@@ -54,7 +49,9 @@ export const ProviderPatchSchema = Type.Object(
 export const PurchaseCreateSchema = Type.Object(
   {
     provider_id: Uuid,
-    purchased_at: DateString,
+    green_coffee_lot_id: Uuid,
+    purchased_at: Type.Optional(Type.Union([DateString, Type.Null()])),
+    received_weight_kg: DecimalInput,
     total_amount: Type.Optional(NullableDecimal),
     currency: Type.Optional(Type.String({ default: "MXN" })),
     payment_method: Type.Optional(NullableString),
@@ -63,10 +60,35 @@ export const PurchaseCreateSchema = Type.Object(
   options,
 );
 
+export const PurchaseWithGreenCoffeeLotCreateSchema = Type.Object(
+  {
+    provider_id: Uuid,
+    purchased_at: Type.Optional(Type.Union([DateString, Type.Null()])),
+    total_amount: DecimalInput,
+    currency: Type.Optional(Type.String({ default: "MXN" })),
+    payment_method: Type.Optional(NullableString),
+    notes: Type.Optional(NullableString),
+    green_coffee_lot_id: Type.Optional(Uuid),
+    new_green_coffee_lot: Type.Optional(Type.Object(
+      {
+        name: Type.String(),
+        origin: Type.Optional(NullableString),
+        variety: Type.String(),
+        notes: Type.Optional(NullableString),
+      },
+      options,
+    )),
+    received_weight_kg: DecimalInput,
+  },
+  options,
+);
+
 export const PurchasePatchSchema = Type.Object(
   {
     provider_id: Type.Optional(Uuid),
-    purchased_at: Type.Optional(DateString),
+    green_coffee_lot_id: Type.Optional(Uuid),
+    purchased_at: Type.Optional(Type.Union([DateString, Type.Null()])),
+    received_weight_kg: Type.Optional(DecimalInput),
     total_amount: Type.Optional(NullableDecimal),
     currency: Type.Optional(Type.String()),
     payment_method: Type.Optional(NullableString),
@@ -77,12 +99,9 @@ export const PurchasePatchSchema = Type.Object(
 
 export const GreenCoffeeCreateSchema = Type.Object(
   {
-    purchase_id: Uuid,
-    name: Type.Optional(NullableString),
+    name: Type.String(),
     origin: Type.Optional(NullableString),
-    variety: Type.Optional(NullableString),
-    received_weight_kg: DecimalInput,
-    unit_cost_per_kg: DecimalInput,
+    variety: Type.String(),
     notes: Type.Optional(NullableString),
   },
   options,
@@ -90,12 +109,9 @@ export const GreenCoffeeCreateSchema = Type.Object(
 
 export const GreenCoffeePatchSchema = Type.Object(
   {
-    purchase_id: Type.Optional(Uuid),
-    name: Type.Optional(NullableString),
+    name: Type.Optional(Type.String()),
     origin: Type.Optional(NullableString),
-    variety: Type.Optional(NullableString),
-    received_weight_kg: Type.Optional(DecimalInput),
-    unit_cost_per_kg: Type.Optional(DecimalInput),
+    variety: Type.Optional(Type.String()),
     notes: Type.Optional(NullableString),
   },
   patchOptions,
@@ -139,8 +155,9 @@ export const RoastBatchPatchSchema = Type.Object(
 
 export const PurchaseListQuery = Type.Object(
   {
-    ...paginationFields,
+    ...paginationProperties,
     provider_id: Type.Optional(Uuid),
+    green_coffee_lot_id: Type.Optional(Uuid),
     purchased_at: Type.Optional(DateString),
     status: Type.Optional(Type.Union([
       Type.Literal("draft"),
@@ -152,13 +169,13 @@ export const PurchaseListQuery = Type.Object(
 );
 
 export const GreenCoffeeListQuery = Type.Object(
-  { ...paginationFields, name: nameField, purchase_id: Type.Optional(Uuid) },
+  { ...paginationProperties, name: nameField },
   options,
 );
 
 export const RoastBatchListQuery = Type.Object(
   {
-    ...paginationFields,
+    ...paginationProperties,
     name: nameField,
     green_coffee_lot_id: Type.Optional(Uuid),
     status: Type.Optional(Type.Union([
@@ -176,6 +193,9 @@ export type ProviderListQueryType = Static<typeof ProviderListQuery>;
 export type ProviderCreate = Static<typeof ProviderCreateSchema>;
 export type ProviderPatch = Static<typeof ProviderPatchSchema>;
 export type PurchaseCreate = Static<typeof PurchaseCreateSchema>;
+export type PurchaseWithGreenCoffeeLotCreate = Static<
+  typeof PurchaseWithGreenCoffeeLotCreateSchema
+>;
 export type PurchasePatch = Static<typeof PurchasePatchSchema>;
 export type GreenCoffeeCreate = Static<typeof GreenCoffeeCreateSchema>;
 export type GreenCoffeePatch = Static<typeof GreenCoffeePatchSchema>;

@@ -58,12 +58,12 @@ export const scenarios: EvalScenario[] = [
     description: "Resolve a provider and save a purchase draft after explicit confirmation.",
     turns: [
       {
-        prompt: "Prepare a purchase from Café Sierra dated 2026-09-15 for MXN 3,800 paid by transfer. Note: sample lot. Show me what will be saved first.",
+        prompt: "Prepare a purchase of 20 kg from Café Sierra dated 2026-09-15 for MXN 3,800 paid by transfer, associated with the existing Chiapas lavado green-coffee lot. Note: sample purchase. Show me what will be saved first.",
         expect: {
           requiredTools: ["query_records", "create_purchase"], allowedTools: ["query_records", "create_purchase"],
           minToolCalls: 2, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["3[,.]?800", "MXN", "confirm"],
-          toolCallContains: [{ name: "create_purchase", arguments: { provider_id: IDS.cafeSierra, purchased_at: "2026-09-15", total_amount: 3800 } }],
+          toolCallContains: [{ name: "create_purchase", arguments: { provider_id: IDS.cafeSierra, green_coffee_lot_id: IDS.greenLot, purchased_at: "2026-09-15", received_weight_kg: 20, total_amount: 3800 } }],
         },
       },
       {
@@ -72,21 +72,21 @@ export const scenarios: EvalScenario[] = [
           requiredTools: ["create_purchase"], allowedTools: ["create_purchase"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
           confirmationTools: ["create_purchase"],
-          stateContains: [{ table: "purchases", fields: { purchased_at: "2026-09-15", total_amount: "3800", currency: "MXN", payment_method: "transfer", notes: "sample lot", status: "draft" } }],
+          stateContains: [{ table: "purchases", fields: { green_coffee_lot_id: "55555555-5555-4555-8555-555555555555", purchased_at: "2026-09-15", received_weight_kg: "20", total_amount: "3800", currency: "MXN", payment_method: "transfer", notes: "sample purchase", status: "draft" } }],
         },
       },
     ],
   },
   {
-    id: "es_missing_lot_cost",
+    id: "es_missing_lot_variety",
     locale: "es-MX",
-    description: "Refuse to invent a required green-coffee unit cost.",
+    description: "Refuse to invent a required green-coffee variety.",
     turns: [{
-      prompt: "Registra un lote nuevo de 25 kg ligado a la compra confirmada de Café Sierra. Se llama Lote feria y viene de Chiapas.",
+      prompt: "Registra un lote nuevo. Se llama Lote feria y viene de Chiapas.",
       expect: {
         forbiddenTools: ["create_green_coffee_lot"], allowedTools: ["query_records"],
-        maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
-        responsePatterns: ["costo|precio", "kg"],
+        maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0,
+        responsePatterns: ["variedad"],
       },
     }],
   },
@@ -124,7 +124,7 @@ export const scenarios: EvalScenario[] = [
       prompt: "Traza el lote ‘Chiapas lavado’ desde su proveedor y compra hasta sus tuestes. Incluye importe de compra, peso recibido y nombres de los tuestes. No cambies nada.",
       expect: {
         requiredTools: ["query_records"], allowedTools: ["query_records"],
-        minToolCalls: 1, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
+        minToolCalls: 1, maxToolCalls: 2, maxApiCalls: 5, mutationCount: 0,
         toolCallContains: [{ name: "query_records", arguments: { resource: "green_coffee_lot", id: IDS.greenLot, include: "traceability" } }],
         responsePatterns: ["Café Sierra", "11[,.]?400", "60(?:\\.0+)?\\s*kg", "Tueste prueba", "Tueste tarde"],
       },
@@ -146,15 +146,15 @@ export const scenarios: EvalScenario[] = [
   {
     id: "es_create_green_lot_confirmation",
     locale: "es-MX",
-    description: "Resolve a purchase and create a normalized green-coffee lot after confirmation.",
+    description: "Create a reusable normalized green-coffee lot after confirmation.",
     turns: [
       {
-        prompt: "Prepara un lote verde ligado a la compra confirmada de Café Sierra: nombre Lote Expo, origen OAXACA, variedad TYPICA, 25 kg recibidos, costo MXN 205.50 por kg y nota ‘  muestra de   expo  ’. Enséñame los campos antes de guardar.",
+        prompt: "Prepara un lote verde: nombre Lote Expo, origen OAXACA, variedad TYPICA y nota ‘  muestra de   expo  ’. Enséñame los campos antes de guardar.",
         expect: {
-          requiredTools: ["query_records", "create_green_coffee_lot"], allowedTools: ["query_records", "create_green_coffee_lot"],
-          minToolCalls: 2, maxToolCalls: 4, maxApiCalls: 4, mutationCount: 0,
-          responsePatterns: ["Lote Expo", "25(?:\\.0+)?\\s*kg", "205\\.50|205[,.]5", "confirm"],
-          toolCallContains: [{ name: "create_green_coffee_lot", arguments: { purchase_id: IDS.confirmedPurchase, name: "Lote Expo", received_weight_kg: 25, unit_cost_per_kg: 205.5 } }],
+          requiredTools: ["create_green_coffee_lot"], allowedTools: ["create_green_coffee_lot"],
+          minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0,
+          responsePatterns: ["Lote Expo", "TYPICA", "confirm"],
+          toolCallContains: [{ name: "create_green_coffee_lot", arguments: { name: "Lote Expo", variety: "TYPICA" } }],
         },
       },
       {
@@ -163,7 +163,7 @@ export const scenarios: EvalScenario[] = [
           requiredTools: ["create_green_coffee_lot"], allowedTools: ["create_green_coffee_lot"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
           confirmationTools: ["create_green_coffee_lot"],
-          stateContains: [{ table: "green_coffee_lots", fields: { purchase_id: IDS.confirmedPurchase, name: "Lote Expo", origin: "oaxaca", variety: "typica", received_weight_kg: "25", unit_cost_per_kg: "205.5", notes: "muestra de expo" } }],
+          stateContains: [{ table: "green_coffee_lots", fields: { name: "Lote Expo", origin: "oaxaca", variety: "typica", notes: "muestra de expo" } }],
         },
       },
     ],

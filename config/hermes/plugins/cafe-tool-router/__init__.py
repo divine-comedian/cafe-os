@@ -22,8 +22,8 @@ _CAFE_PREFIX = "mcp__cafe_os__"
 _DISCOVERY = "discover_tools"
 _PROPOSAL_REQUIRED = {
     "create_provider": ["name"],
-    "create_purchase": ["provider_id", "purchased_at"],
-    "create_green_coffee_lot": ["purchase_id", "received_weight_kg", "unit_cost_per_kg"],
+    "create_purchase": ["provider_id", "green_coffee_lot_id", "received_weight_kg"],
+    "create_green_coffee_lot": ["name", "variety"],
     "create_roast_batch": ["green_coffee_lot_id"],
     "update_record": ["resource", "id", "fields"],
     "set_record_status": ["resource", "id", "status"],

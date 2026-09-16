@@ -15,9 +15,9 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - Telegram accepts messages from any user. Its public toolset excludes shell, file-write, cron, messaging, and shared-memory access.
 - Remote admin slash commands are disabled; public users receive only the documented safe command set.
 - The gateway runs as an enabled per-user systemd service and starts automatically at boot.
-- A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema.
-- The TypeScript Cafe API is running on `127.0.0.1:8100`.
-- A ten-tool TypeScript MCP adapter, DeepSeek Flash intent router, exact pending-confirmation store, and guarded Hermes operations skill are implemented. General-purpose tools are disabled in the trusted operations profile.
+- A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema and invite-only email Auth.
+- The TypeScript Cafe API and authenticated React operations UI are served on `127.0.0.1:8100`.
+- A ten-tool TypeScript MCP adapter, DeepSeek Flash intent router, exact pending-confirmation store, and guarded Hermes operations skill are implemented. General-purpose tools are disabled in the trusted operations profile, and Cafe tools are not connected to the public Hermes toolset.
 
 ## Finish setup
 
@@ -50,7 +50,8 @@ The user service plus systemd lingering is intentional on this headless host: it
 - `scripts/setup-hermes-eval.sh` — isolated no-channel Hermes profile for semantic evals.
 - `scripts/db.sh` — password-free shell into the local Supabase Postgres container.
 - `scripts/cafe-api.sh` — build and operate the loopback-only TypeScript API.
-- `services/cafe-api/` — Fastify REST API, validation helpers, and tests.
+- `services/cafe-api/` — Fastify REST API, Auth token validation, static UI hosting, and tests.
+- `services/cafe-web/` — responsive React operations UI for providers, purchases, lots, and roasts.
 - `services/cafe-mcp/` — compact TypeScript MCP adapter for trusted Hermes profiles.
 - `evals/hermes-operations/` — bilingual semantic, trajectory, hop, and token eval suite.
 - `config/hermes/SOUL.md` — versioned Cafe OS organizational identity.
@@ -60,6 +61,7 @@ The user service plus systemd lingering is intentional on this headless host: it
 - `db/migrations/` — ordered SQL migrations for the Cafe OS database.
 - `docs/database.md` — current schema, calculations, Storage convention, and access posture.
 - `docs/backend-service.md` — REST routes, middleware, validation, and operations.
+- `docs/frontend.md` — Auth model, operator setup, UI workflows, and headless access.
 - `docs/supabase.md` — self-hosted Supabase operations and security runbook.
 - `docs/headless-deployment.md` — Telegram, OpenRouter, voice, and systemd runbook.
 - `docs/project-roadmap.md` — phased product direction extracted from the project notes.

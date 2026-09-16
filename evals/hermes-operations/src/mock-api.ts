@@ -39,9 +39,9 @@ function normalizeRow(table: TableName, fields: Record<string, unknown>): Record
         ? ["origin", "variety"]
         : [];
   const decimals = table === "purchases"
-    ? ["total_amount"]
+    ? ["received_weight_kg", "total_amount"]
     : table === "green_coffee_lots"
-      ? ["received_weight_kg", "unit_cost_per_kg"]
+      ? []
       : table === "roast_batches"
         ? ["green_input_kg", "roasted_output_kg"]
         : [];
@@ -207,8 +207,10 @@ export class MockCafeApi {
       this.operations.push({ method, path: url.pathname });
       const dependencies: Record<string, number> = {};
       if (table === "providers") dependencies.purchases = this.state.purchases.filter((item) => item.provider_id === id).length;
-      if (table === "purchases") dependencies.green_coffee_lots = this.state.green_coffee_lots.filter((item) => item.purchase_id === id).length;
-      if (table === "green_coffee_lots") dependencies.roast_batches = this.state.roast_batches.filter((item) => item.green_coffee_lot_id === id).length;
+      if (table === "green_coffee_lots") {
+        dependencies.purchases = this.state.purchases.filter((item) => item.green_coffee_lot_id === id).length;
+        dependencies.roast_batches = this.state.roast_batches.filter((item) => item.green_coffee_lot_id === id).length;
+      }
       for (const key of Object.keys(dependencies)) if (!dependencies[key]) delete dependencies[key];
       if (Object.keys(dependencies).length) {
         return json(response, 409, { error: { code: "DEPENDENCY_CONFLICT", dependencies } });

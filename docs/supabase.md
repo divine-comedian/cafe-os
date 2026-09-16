@@ -10,7 +10,7 @@ Cafe OS runs the official Supabase Docker deployment from `supabase/`. The gener
 - Studio/API gateway: `http://127.0.0.1:8000`
 - Session-mode pooler: `127.0.0.1:5432`
 - Transaction-mode pooler: `127.0.0.1:6543`
-- Public Auth signup: disabled during database design
+- Email Auth: enabled; public signup disabled (invite-only operators)
 - Analytics/Logflare: not enabled
 - Application tables in `public`: `providers`, `purchases`, `green_coffee_lots`, and `roast_batches`
 
@@ -64,6 +64,10 @@ That command prints credentials to the terminal. Do not paste its output into ch
 ## Application-data boundary
 
 Supabase creates its built-in schemas, roles, extensions, and Auth/Storage/Realtime metadata. Cafe OS adds four application tables and the private `purchase-documents` bucket through the tracked migrations in `db/migrations/`. See `docs/database.md` for the current application shape.
+
+## Frontend operators
+
+Cafe OS uses Supabase Auth for invite-only email/password sessions. Create a confirmed operator with `./scripts/create-cafe-user.sh operator@example.com`; do not enable public signup. See [Frontend](frontend.md) for the full session boundary and headless access steps.
 
 ## Before production use
 
