@@ -50,8 +50,8 @@ The current agent can reach the correct Cafe OS mutation, but operators would ex
 
 Make a Cafe-specific Hermes profile whose normal path is short and explicit:
 
-- the Cafe OS catalog remains dynamic, while a small request-relevant subset is preloaded and directly callable;
-- discovery is used only when the needed operation was not preloaded, and newly discovered definitions remain active for the request;
+- the Cafe OS catalog remains dynamic, while a cheap intent-router model selects a small request-relevant subset for the main agent;
+- fallback discovery is used only when routing fails or the main agent identifies a missing capability, and newly discovered definitions remain active for the request;
 - no shell, file, browser, web, memory, or general-purpose calculation tool is available;
 - a user task gets fresh request-scoped orchestration state;
 - an exact proposed write survives the confirmation boundary unchanged;
@@ -79,7 +79,8 @@ Hive Mind is structurally different, so the useful material is a set of invarian
 | Small explicit loop phases | `lib/chat/turn-loop.ts`, `turn-loop-tools.ts` | Separate model call, tool-call decoding, policy check, execution, suspension, and final response. Each phase produces a typed result and one terminal reason. |
 | Exact server-held confirmation payload | `lib/chat/tool-confirmation/*` | Persist the exact tool name, canonical arguments, target IDs, proposed display summary, session ID, and expiry before asking for confirmation. On approval, execute that stored payload once instead of asking the model to reconstruct it. |
 | Trusted post-confirmation state | `lib/chat/agent-loop.ts` | Resume with a system-owned outcome of `completed`, `failed`, `partial`, or `declined`. A completed write is already done and must not be proposed, retried, or re-read merely because the resumed prompt contains the earlier proposal. |
-| Bounded active tool catalog | `lib/tools/mcp-bridge/active-catalog.ts`, `catalog-search.ts` | Keep the full Cafe catalog discoverable, preload the most relevant tools from the current request, and cap the active subset. Discovery should expand the request-scoped subset rather than exposing the whole future catalog. |
+| Cheap structured intent routing | `lib/rag/intent-classifier-request.ts`, `intent-classifier-schemas.ts` | Run a small model with no reasoning, temperature zero, one forced schema-bound classification function, a short timeout, validation, and safe fallback. Use its result only to choose which Cafe tool schemas the main agent receives. |
+| Bounded active tool catalog | `lib/tools/mcp-bridge/active-catalog.ts`, `catalog-search.ts` | Keep the full Cafe catalog discoverable, expose the router-selected tools to the main agent, and cap the active subset. Fallback discovery should expand the request-scoped subset rather than exposing the whole future catalog. |
 | Tool schemas as versioned wire contracts | `lib/tools/agent-tool-snapshot.ts`, `test/agent-tool-definitions.test.ts` | Commit a stable snapshot or normalized hash of the full discoverable Cafe catalog and its discovery controls. Require an intentional fixture update when a name, description, field, type, enum, or order changes. |
 | Aggregate completion and result budgets | `lib/chat/completion-token-budget.ts`, `tool-result-budget.ts` | Enforce a per-user-turn output budget across every hop, plus a bounded tool-result payload. Refuse another model hop below the safe response floor. |
 | Explicit termination reasons | `lib/chat/turn-termination.ts` | Record `completed`, `needs_confirmation`, `needs_clarification`, `tool_failed`, `invalid_tool_call`, `duplicate_call`, `hop_limit`, `token_limit`, or `wall_clock_limit`. |
@@ -89,21 +90,37 @@ Hive Mind is structurally different, so the useful material is a set of invarian
 
 ## Proposed implementation
 
-### 1. Bound and instrument dynamic discovery
+### 1. Add a small-model tool intent router
 
 Update `scripts/setup-hermes-eval.sh` and the trusted operations profile setup:
 
 - Keep dynamic discovery enabled for the Cafe OS catalog.
-- Make `query_records` always active because almost every operational workflow needs identity or foreign-key resolution.
-- Before the first model hop, score the latest substantive request against tool names, descriptions, and parameter metadata. Preload a bounded set of the most relevant Cafe tools with deterministic tie-breaking.
-- Carry the preceding request into discovery when the latest message is a short confirmation or clarification such as “yes,” “the second one,” or “confirm it.”
+- Before the first main-agent hop, call a small intent-router model through OpenRouter. Use `deepseek/deepseek-v4.1-flash` by default through a configurable `CAFE_TOOL_ROUTER_MODEL` setting.
+- Give the router only the latest substantive request, the immediately relevant clarification context, and a compact catalog of allowed Cafe tool IDs, short descriptions, operation kinds, and required parameter names. Do not send database rows, invoices, supplier prices, credentials, full conversation history, or full tool-result payloads.
+- Disable router reasoning, set temperature to zero, cap output at 256 tokens, and apply a short timeout. Treat these as independently configurable routing settings rather than inheriting the main Qwen policy.
+- OpenRouter currently documents `tools` and `tool_choice` support for DeepSeek V4.1 Flash but not `response_format`. Require one forced synthetic `select_cafe_tools` function call and validate its arguments against the router schema. Do not rely on free-form JSON or `response_format`. See `https://openrouter.ai/deepseek/deepseek-v4.1-flash`.
+- Require a narrow result such as:
+
+```json
+{
+  "intent": "create_green_coffee_lot",
+  "tool_ids": ["query_records", "create_green_coffee_lot"],
+  "confidence": 0.96
+}
+```
+
+- Validate every returned ID against the request's authorized Cafe catalog, deduplicate it, and enforce a maximum of five selected tools. The router cannot execute tools, supply tool arguments, resolve record identities, authorize a write, or bypass confirmation.
+- Load the selected tools' full schemas only after validation, then give that limited tool context to the main Qwen agent. Qwen retains all operational reasoning, ambiguity handling, field extraction, proposal, and response decisions.
+- Carry the preceding request into routing when the latest message is a short confirmation or clarification such as “yes,” “the second one,” or “confirm it.”
+- Bypass classification when Cafe OS already holds an exact pending confirmation. Restore the stored tool schema and canonical pending operation directly.
+- If the router times out, returns malformed function arguments, selects no valid tool, or has low confidence, expose only the Cafe discovery control to the main model. Do not fall back to the entire catalog or to general-purpose Hermes tools.
 - Keep the discovery control available whenever undisclosed Cafe tools remain. If a tool is found, attach its real schema directly to the request-scoped active catalog for subsequent hops.
 - Prefer one search-and-activate step. Do not require separate search, describe, and generic wrapper calls when Hermes' extension boundary allows the discovered definition to become directly callable.
-- Start with a maximum of six active Cafe tools per request and make the limit configurable. Revisit this number as the catalog grows and prompt-size measurements change.
+- Start with a maximum of five router-selected Cafe tools per request and make the limit configurable. Revisit this number as the catalog grows and prompt-size measurements change.
 - Keep active tools stable for the duration of one request. Rebuild the active subset for the next request so unrelated tools and context do not accumulate.
 - Explicitly disable all built-in toolsets for this profile, including terminal, code execution, file access, browser, web, memory, delegation, cron, messaging, skills management, and todo tools.
 - Keep Telegram and Discord disabled in the eval profile.
-- Add a startup assertion that every discoverable domain tool belongs to the `cafe_os` namespace and that no built-in or unrelated MCP tools are visible. Assert the expected initial active subset per eval request rather than one static global set.
+- Add a startup assertion that every discoverable domain tool belongs to the `cafe_os` namespace and that no built-in or unrelated MCP tools are visible. Assert the router's selected subset and the main agent's actual tool context per eval request rather than one static global set.
 - Retain medium reasoning, the 16,384 total output cap, 19 tool iterations plus Hermes' one wrap-up call, and the 90-second wall-clock cap until the optimized baseline proves that lower limits are safe.
 
 First proof command:
@@ -112,7 +129,7 @@ First proof command:
 hermes -p cafe-eval prompt-size --toolsets cafe_os
 ```
 
-Also capture the full discoverable catalog, discovery-control schemas, and representative preloaded subsets in test fixtures. The fixtures should be produced from the profile that the eval runner invokes, not from a separate hand-built representation.
+Also capture the full discoverable catalog, router output schema, discovery-control schemas, and representative routed subsets in test fixtures. The fixtures should be produced from the profile that the eval runner invokes, not from a separate hand-built representation.
 
 ### 2. Make the existing tools easier to select correctly
 
@@ -232,7 +249,8 @@ Limit tool results as well:
 Add one event per model hop, tool start, tool end, confirmation suspend, confirmation resume, and terminal state. Safe fields:
 
 - run, scenario, turn, session, and request IDs;
-- model, provider, and reasoning level;
+- router and main model IDs, provider, and reasoning level;
+- router duration, selected tool IDs, confidence, validation outcome, fallback reason, input tokens, output tokens, and cost;
 - hop number and remaining budgets;
 - tool name and read/write/delete/upload kind;
 - duration, success, and normalized error code;
@@ -245,7 +263,9 @@ Do not emit tool arguments, results, record contents, local paths, confirmation 
 Add deterministic assertions for:
 
 - complete and schema-stable discoverable Cafe catalog;
-- deterministic request-specific preload set;
+- router function arguments conform to their strict schema and contain only allowed Cafe tool IDs;
+- expected routed tool set for unambiguous eval requests;
+- pending confirmations bypass the router and restore only their stored operation context;
 - no repeated discovery query for the same capability;
 - no malformed discovery or wrapper envelopes;
 - no non-Cafe tool calls;
@@ -264,7 +284,7 @@ Keep the current verbose report mode. Add a sanitized trajectory summary that gr
 ## Implementation sequence
 
 1. Profile lockdown, full-catalog snapshot, and namespace assertion.
-2. Deterministic initial preloading with bounded request-scoped discovery, followed by a new single-scenario baseline.
+2. DeepSeek V4.1 Flash tool-intent router with strict output validation and bounded request-scoped fallback discovery, followed by a new single-scenario baseline.
 3. Prompt cleanup for language, ambiguity, exact values, successful-write finality, and direct arithmetic.
 4. Query ergonomics and concise authoritative write receipts.
 5. Request-scoped duplicate-call and post-write-read policy.
@@ -289,8 +309,10 @@ Correctness and safety release gate:
 Tool behavior release gate:
 
 - Every discoverable domain tool belongs to the Cafe OS namespace, and the full catalog matches its reviewed schema snapshot.
-- The first model hop receives a deterministic, bounded subset relevant to the active request.
-- Discovery remains available for non-preloaded and future Cafe capabilities, and an activated tool remains directly usable for the rest of that request.
+- DeepSeek V4.1 Flash returns only valid Cafe tool IDs through the forced `select_cafe_tools` call, with reasoning disabled and a bounded output.
+- The first main-agent hop receives only the validated, bounded subset selected for the active request.
+- Discovery remains available for non-selected and future Cafe capabilities, and an activated tool remains directly usable for the rest of that request.
+- Router failure or low confidence degrades to Cafe-only discovery, never to the entire catalog or a general-purpose toolset.
 - A workflow makes at most one discovery query for a distinct missing capability and never repeats a description lookup it already completed.
 - Zero malformed discovery or wrapper calls.
 - Zero terminal, code, file, browser, web, memory, delegation, or non-Cafe MCP calls.
@@ -303,7 +325,8 @@ Efficiency target against the current full-suite baseline:
 
 - No turn exceeds its operational hop cap.
 - Full-suite model hops are at most 75, down from 116.
-- Total tokens and estimated OpenRouter cost each fall by at least 30 percent without weakening correctness or safety.
+- Router calls are reported separately from main-agent hops, then included in total latency, token, and cost accounting.
+- Combined router and main-agent tokens and estimated OpenRouter cost each fall by at least 30 percent without weakening correctness or safety.
 - Wall time falls by at least 30 percent under comparable provider conditions.
 - Medium reasoning remains the default until a lower-effort run passes the same correctness gate.
 
@@ -346,7 +369,7 @@ Commit a new reviewed, secret-free baseline under `evals/hermes-operations/basel
 - Patching Hermes upstream gives the strongest loop control but increases maintenance burden. Prefer profile configuration and a Cafe-owned TypeScript boundary first.
 - Server-held confirmation state adds storage and expiry semantics. It is justified because exact-once writes and exact field preservation are core operational requirements.
 - Read deduplication must not hide a legitimate post-write state change. Reset or version the read cache after any write attempt with an ambiguous outcome.
-- Aggressive token caps can create incomplete confirmations. Tune caps only after request-specific preloading, discovery cleanup, and prompt cleanup remove unnecessary hops.
+- Aggressive token caps can create incomplete confirmations. Tune caps only after intent routing, discovery cleanup, and prompt cleanup remove unnecessary hops.
 - Cost is a secondary metric. A cheaper run that guesses a record, changes a name, skips confirmation, or writes the wrong target still fails.
 
 ## Definition of done
