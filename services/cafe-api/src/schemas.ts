@@ -54,6 +54,28 @@ export const PurchaseCreateSchema = Type.Object(
   options,
 );
 
+export const PurchaseWithGreenCoffeeLotCreateSchema = Type.Object(
+  {
+    provider_id: Uuid,
+    purchased_at: DateString,
+    total_amount: DecimalInput,
+    currency: Type.Optional(Type.String({ default: "MXN" })),
+    payment_method: Type.Optional(NullableString),
+    notes: Type.Optional(NullableString),
+    green_coffee_lot: Type.Object(
+      {
+        name: Type.Optional(NullableString),
+        origin: Type.Optional(NullableString),
+        variety: Type.String(),
+        received_weight_kg: DecimalInput,
+        notes: Type.Optional(NullableString),
+      },
+      options,
+    ),
+  },
+  options,
+);
+
 export const PurchasePatchSchema = Type.Object(
   {
     provider_id: Type.Optional(Uuid),
@@ -167,6 +189,9 @@ export type PaginationQueryType = Static<typeof PaginationQuery>;
 export type ProviderCreate = Static<typeof ProviderCreateSchema>;
 export type ProviderPatch = Static<typeof ProviderPatchSchema>;
 export type PurchaseCreate = Static<typeof PurchaseCreateSchema>;
+export type PurchaseWithGreenCoffeeLotCreate = Static<
+  typeof PurchaseWithGreenCoffeeLotCreateSchema
+>;
 export type PurchasePatch = Static<typeof PurchasePatchSchema>;
 export type GreenCoffeeCreate = Static<typeof GreenCoffeeCreateSchema>;
 export type GreenCoffeePatch = Static<typeof GreenCoffeePatchSchema>;

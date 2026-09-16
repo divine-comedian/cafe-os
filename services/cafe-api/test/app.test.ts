@@ -163,6 +163,75 @@ describe("Cafe API", () => {
     expect(invalid.json().error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("creates a purchase and its green-coffee lot together", async () => {
+    const store = new MemoryStore();
+    const providerId = crypto.randomUUID();
+    store.rows.providers.push({ id: providerId, name: "Finca Test" });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/purchases/with-green-coffee-lot",
+      headers: { authorization: "Bearer test-api-token" },
+      payload: {
+        provider_id: providerId,
+        purchased_at: "2026-09-16",
+        total_amount: "2400.00",
+        currency: "MXN",
+        green_coffee_lot: {
+          name: "Cosecha 2026",
+          origin: " CHIAPAS ",
+          variety: " BOURBON ",
+          received_weight_kg: "20.000",
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().data.green_coffee_lot).toMatchObject({
+      origin: "chiapas",
+      variety: "bourbon",
+      received_weight_kg: "20.000",
+      unit_cost_per_kg: "120.0000",
+    });
+    expect(store.rows.purchases).toHaveLength(1);
+    expect(store.rows.green_coffee_lots).toHaveLength(1);
+  });
+
+  it("rolls back the purchase when its lot cannot be created", async () => {
+    class FailingLotStore extends MemoryStore {
+      override async create(table: TableName, data: Row): Promise<Row> {
+        if (table === "green_coffee_lots") throw new Error("simulated lot failure");
+        return super.create(table, data);
+      }
+    }
+    const store = new FailingLotStore();
+    const providerId = crypto.randomUUID();
+    store.rows.providers.push({ id: providerId, name: "Finca Test" });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/purchases/with-green-coffee-lot",
+      headers: { authorization: "Bearer test-api-token" },
+      payload: {
+        provider_id: providerId,
+        purchased_at: "2026-09-16",
+        total_amount: "2400.00",
+        green_coffee_lot: {
+          variety: "bourbon",
+          received_weight_kg: "20.000",
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(store.rows.purchases).toHaveLength(0);
+    expect(store.rows.green_coffee_lots).toHaveLength(0);
+  });
+
   it("accepts the purchase date and UUID shapes", async () => {
     const store = new MemoryStore();
     const providerId = crypto.randomUUID();

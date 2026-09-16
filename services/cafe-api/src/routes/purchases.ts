@@ -7,6 +7,8 @@ import {
   PurchaseCreateSchema,
   PurchaseListQuery,
   PurchaseListQueryType,
+  PurchaseWithGreenCoffeeLotCreate,
+  PurchaseWithGreenCoffeeLotCreateSchema,
   PurchasePatch,
   PurchasePatchSchema,
 } from "../schemas.js";
@@ -16,6 +18,7 @@ import {
   hasOwn,
   normalizeCurrency,
   normalizeDecimal,
+  normalizeDisplayText,
   normalizeLabel,
   normalizeNotes,
 } from "../validation/normalize.js";
@@ -25,6 +28,7 @@ import {
   pagination,
   recordEnvelope,
   requireNonnegativeDecimal,
+  requirePositiveDecimal,
   requireRow,
 } from "./helpers.js";
 
@@ -49,6 +53,74 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
         offset,
       );
       return listEnvelope(rows, limit, offset);
+    },
+  );
+
+  app.post<{ Body: PurchaseWithGreenCoffeeLotCreate }>(
+    "/purchases/with-green-coffee-lot",
+    {
+      schema: {
+        tags: ["Purchases", "Green coffee"],
+        body: PurchaseWithGreenCoffeeLotCreateSchema,
+      },
+    },
+    async (request, reply) => {
+      await requireRow(store, "providers", "provider", request.body.provider_id);
+      const amount = requireNonnegativeDecimal(
+        normalizeDecimal(request.body.total_amount, "total_amount"),
+        "total_amount",
+      );
+      const receivedWeight = requirePositiveDecimal(
+        normalizeDecimal(
+          request.body.green_coffee_lot.received_weight_kg,
+          "green_coffee_lot.received_weight_kg",
+        ),
+        "green_coffee_lot.received_weight_kg",
+      );
+      const variety = normalizeLabel(request.body.green_coffee_lot.variety);
+      if (!variety) {
+        throw new ApiError(
+          422,
+          "VALIDATION_ERROR",
+          "green_coffee_lot.variety is required.",
+          { field: "green_coffee_lot.variety" },
+        );
+      }
+
+      const purchase = await store.create("purchases", {
+        provider_id: request.body.provider_id,
+        purchased_at: request.body.purchased_at,
+        total_amount: amount,
+        currency: normalizeCurrency(request.body.currency ?? "MXN"),
+        payment_method: normalizeLabel(request.body.payment_method),
+        notes: normalizeNotes(request.body.notes),
+      });
+
+      try {
+        const greenCoffeeLot = await store.create("green_coffee_lots", {
+          purchase_id: purchase.id,
+          name: normalizeDisplayText(request.body.green_coffee_lot.name),
+          origin: normalizeLabel(request.body.green_coffee_lot.origin),
+          variety,
+          received_weight_kg: receivedWeight,
+          unit_cost_per_kg: (Number(amount) / Number(receivedWeight)).toFixed(4),
+          notes: normalizeNotes(request.body.green_coffee_lot.notes),
+        });
+        return reply
+          .code(201)
+          .send(recordEnvelope({ purchase, green_coffee_lot: greenCoffeeLot }));
+      } catch (error) {
+        const rolledBack = await store.delete("purchases", String(purchase.id)).catch(
+          () => false,
+        );
+        if (!rolledBack) {
+          request.log.error(
+            { purchaseId: purchase.id },
+            "Could not roll back purchase after lot creation failed",
+          );
+        }
+        throw error;
+      }
     },
   );
 
