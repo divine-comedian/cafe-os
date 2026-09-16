@@ -1,6 +1,6 @@
 # Headless Hermes deployment
 
-This server has no graphical session. Hermes runs as a background messaging gateway; Discord and Telegram make outbound connections, so neither adapter needs a public inbound port. Telegram should retain its default long-polling mode rather than using a webhook.
+This server has no graphical session. Hermes runs as a background messaging gateway; Telegram makes an outbound connection, so the adapter needs no public inbound port. It should retain its default long-polling mode rather than using a webhook.
 
 ## 1. Install and configure the runtime
 
@@ -10,9 +10,9 @@ From the repository root:
 ./scripts/bootstrap-hermes.sh
 ```
 
-The script skips provisioning Playwright/Chromium, desktop computer-use support, and the interactive wizard. Browser and desktop-control toolsets are not exposed to the messaging agents. Hermes still supports text, files, images, voice-note transcription, terminal/file work in its Docker sandbox, memory, skills, and cron jobs.
+The script skips provisioning Playwright/Chromium, desktop computer-use support, and the interactive wizard. Browser and desktop-control toolsets are not exposed to the messaging agents. The public Telegram agent supports text, images, voice-note transcription, skills, lightweight task planning, web access, and TTS. Host shell, repository files, cron, messaging, and shared-memory tools are intentionally withheld.
 
-The sandbox mounts this repository as its workspace but has container networking disabled. The gateway process itself retains outbound access for Discord, Telegram, OpenRouter, and configured tool providers.
+The Docker sandbox remains configured for future trusted workflows, with only this repository mounted and container networking disabled. The gateway process itself retains outbound access for Telegram, OpenRouter, and configured tool providers.
 
 ## 2. Configure OpenRouter
 
@@ -38,36 +38,15 @@ hermes config set model.default 'provider/model-id'
    hermes config set TELEGRAM_BOT_TOKEN '123456789:...'
    ```
 
-4. Send the new bot a message, then determine your numeric Telegram user ID with a trusted ID bot or Hermes' gateway setup flow.
-5. Restrict access:
+4. Public access is configured by the bootstrap script with `TELEGRAM_ALLOW_ALL_USERS=true`; no user allowlist is required.
 
-   ```bash
-   hermes config set TELEGRAM_ALLOWED_USERS '123456789'
-   ```
+Anyone who discovers the bot can consume model quota. Keep Telegram's reduced public toolset in place and monitor OpenRouter usage. For group use, BotFather privacy mode can remain enabled if the bot should respond only to commands, mentions, and replies.
 
-For group use, BotFather privacy mode can remain enabled if the team will use commands, mentions, and replies. If it is disabled so Hermes can see normal group chatter, remove and re-add the bot afterward and explicitly restrict allowed chats.
+The bootstrap also gates slash commands. Public users can use `/help`, `/whoami`, `/status`, `/new`, `/reset`, `/usage`, `/voice`, and `/stop`; privileged commands are unavailable. Admin ID `0` is an intentional sentinel that matches no Telegram user, so administration remains SSH-only. To appoint a Telegram administrator later, replace `0` in both `allow_admin_from` settings with that trusted account's numeric user ID.
 
-## 4. Create the Discord bot
+## 4. Voice notes
 
-The Discord Developer Portal is a browser-only external step; complete it from another computer at [Discord Applications](https://discord.com/developers/applications).
-
-1. Create an application and bot.
-2. Enable **Message Content Intent**. Enable **Server Members Intent** when using usernames or role allowlists; numeric user IDs avoid that dependency.
-3. Copy the bot token and store it:
-
-   ```bash
-   hermes config set DISCORD_BOT_TOKEN '...'
-   hermes config set DISCORD_ALLOWED_USERS '123456789012345678'
-   ```
-
-4. Under Installation/OAuth2, invite it with the `bot` and `applications.commands` scopes. Grant only the channel permissions it needs: view channel, send messages, read message history, attach files, embed links, add reactions, and use application commands.
-5. Keep the bot limited to private operations channels. Hermes requires an `@mention` in server channels by default and isolates group context per user.
-
-Use Discord Developer Mode and **Copy User ID** for the allowlist. Never use `DISCORD_ALLOW_ALL_USERS=true` for this deployment.
-
-## 5. Voice notes
-
-Inbound Discord and Telegram voice notes are enabled. The current provider is local `faster-whisper`, so audio stays on the server. Language detection is automatic for Spanish/English use. The base model is downloaded on first use and may take a moment.
+Inbound Telegram voice notes are enabled. The current provider is local `faster-whisper`, so audio stays on the server. Language detection is automatic for Spanish/English use. The base model is downloaded on first use and may take a moment.
 
 If CPU or memory pressure is too high, use Groq Whisper instead:
 
@@ -78,7 +57,7 @@ hermes config set stt.provider groq
 
 OpenRouter does not provide Hermes' speech-to-text API. Do not put an OpenAI key in `OPENAI_API_KEY` merely for voice; Hermes uses `VOICE_TOOLS_OPENAI_KEY` for direct OpenAI transcription/TTS.
 
-## 6. Validate and start at boot
+## 5. Validate and start at boot
 
 ```bash
 ./scripts/validate-hermes.sh
@@ -96,15 +75,14 @@ journalctl --user -u hermes-gateway -f
 
 The user service plus lingering survives logout and starts at boot. Avoid installing the system-level unit at the same time; two gateways using the same bot tokens will conflict.
 
-## 7. Smoke test
+## 6. Smoke test
 
-1. DM the Telegram bot `/status`, then send a short voice memo.
-2. DM the Discord bot `/status`.
-3. In the private Discord operations channel, mention the bot and ask it to summarize `AGENTS.md`.
-4. Confirm an unlisted account gets no response.
-5. Run `/sethome` in the chosen private channel if cron reports should be delivered there.
+1. Send the Telegram bot `/status`, then send a short Spanish or English voice memo.
+2. Repeat from a second Telegram account and confirm it can interact without pairing or an allowlist.
+3. Ask the bot what tools it has and confirm shell, file, cron, messaging, and memory tools are absent.
+4. Check OpenRouter usage after the test.
 
-## 8. Operating commands
+## 7. Operating commands
 
 ```bash
 hermes gateway status

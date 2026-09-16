@@ -45,10 +45,18 @@ fi
 "$hermes_cmd" config set gateway.systemd_watchdog_seconds 120
 "$hermes_cmd" config set display.background_process_notifications concise
 
+"$hermes_home/hermes-agent/venv/bin/python" -c \
+  "from hermes_cli.config import save_env_value_secure; save_env_value_secure('TELEGRAM_ALLOW_ALL_USERS', 'true'); save_env_value_secure('TELEGRAM_ALLOWED_USERS', '')"
+"$hermes_cmd" config set platforms.telegram.enabled true
+"$hermes_cmd" config set platforms.discord.enabled false
+"$hermes_cmd" config set platforms.telegram.extra.allow_admin_from '["0"]'
+"$hermes_cmd" config set platforms.telegram.extra.group_allow_admin_from '["0"]'
+"$hermes_cmd" config set platforms.telegram.extra.user_allowed_commands \
+  '["status","new","reset","usage","voice","stop"]'
+"$hermes_cmd" config set platforms.telegram.extra.group_user_allowed_commands \
+  '["status","new","reset","usage","voice","stop"]'
 "$hermes_cmd" config set platform_toolsets.telegram \
-  "[terminal,file,web,vision,skills,todo,memory,session_search,tts,cronjob,messaging]"
-"$hermes_cmd" config set platform_toolsets.discord \
-  "[terminal,file,web,vision,skills,todo,memory,session_search,tts,cronjob,messaging]"
+  "[web,vision,skills,todo,tts]"
 
 "$hermes_cmd" config check
 

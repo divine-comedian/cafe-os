@@ -12,13 +12,13 @@ check_command() {
   fi
 }
 
-check_secret() {
+check_env_value() {
   variable="$1"
   env_file="${HERMES_HOME:-$HOME/.hermes}/.env"
   if [ -f "$env_file" ] && grep -Eq "^${variable}=.+" "$env_file"; then
-    printf 'ok   secret configured: %s\n' "$variable"
+    printf 'ok   environment value configured: %s\n' "$variable"
   else
-    printf 'MISS secret not configured: %s\n' "$variable"
+    printf 'MISS environment value not configured: %s\n' "$variable"
     failure=1
   fi
 }
@@ -28,11 +28,9 @@ check_command git
 check_command docker
 check_command ffmpeg
 
-check_secret OPENROUTER_API_KEY
-check_secret TELEGRAM_BOT_TOKEN
-check_secret TELEGRAM_ALLOWED_USERS
-check_secret DISCORD_BOT_TOKEN
-check_secret DISCORD_ALLOWED_USERS
+check_env_value OPENROUTER_API_KEY
+check_env_value TELEGRAM_BOT_TOKEN
+check_env_value TELEGRAM_ALLOW_ALL_USERS
 
 if command -v hermes >/dev/null 2>&1; then
   hermes config check || failure=1

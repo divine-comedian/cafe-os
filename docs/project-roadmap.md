@@ -2,6 +2,8 @@
 
 This roadmap distills the source meeting transcript. It is intentionally narrower than a full product plan.
 
+The current prototype surface is public Telegram. Discord is deferred.
+
 ## Phase 1: management and roasting operations
 
 - Capture formal invoices and informal supplier purchases through Discord or Telegram.
