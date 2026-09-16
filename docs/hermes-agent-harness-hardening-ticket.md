@@ -37,7 +37,7 @@ The current agent can reach the correct Cafe OS mutation, but operators would ex
 ## Observed failure modes
 
 1. Identical reads repeat within one user task. Successful writes are followed by unnecessary verification reads even though the write response contains the stored record.
-2. Hermes inserts `tool_search`, `tool_describe`, and `tool_call` around a domain surface of only nine tools. This adds discovery hops and contributed two malformed nested `tool_call` envelopes.
+2. Hermes currently makes discovery expensive by inserting `tool_search`, `tool_describe`, and `tool_call` around Cafe operations. Dynamic discovery is desirable as the toolbelt grows, but repeated discovery and malformed nested `tool_call` envelopes are not.
 3. Hermes reached for `terminal` to perform basic arithmetic and to inspect an upload fixture. This happened even though the run was invoked with `--toolsets cafe_os`.
 4. The requested roast name `Morning profile` was changed to `Morning`.
 5. The ambiguous provider query for “Sierra” read both matches and then silently chose Café Sierra instead of asking the operator.
@@ -50,7 +50,8 @@ The current agent can reach the correct Cafe OS mutation, but operators would ex
 
 Make a Cafe-specific Hermes profile whose normal path is short and explicit:
 
-- the nine Cafe OS tools are attached directly, with no discovery bridge;
+- the Cafe OS catalog remains dynamic, while a small request-relevant subset is preloaded and directly callable;
+- discovery is used only when the needed operation was not preloaded, and newly discovered definitions remain active for the request;
 - no shell, file, browser, web, memory, or general-purpose calculation tool is available;
 - a user task gets fresh request-scoped orchestration state;
 - an exact proposed write survives the confirmation boundary unchanged;
@@ -65,7 +66,7 @@ Make a Cafe-specific Hermes profile whose normal path is short and explicit:
 - Copying Hive Mind's application architecture into Cafe OS.
 - Adding database tables or changing the phase-one data model.
 - Expanding into sales, marketing, payments, supplier contact, or autonomous decisions.
-- Adding more domain tools before the existing nine-tool surface has been tuned.
+- Proliferating resource-specific tools when an existing generic operation can remain clear and well typed.
 - Introducing an agentic judge as the release gate. Deterministic assertions remain authoritative; a judge may be added later for tone-only analysis.
 
 ## Reference patterns from Hive Mind
@@ -78,8 +79,8 @@ Hive Mind is structurally different, so the useful material is a set of invarian
 | Small explicit loop phases | `lib/chat/turn-loop.ts`, `turn-loop-tools.ts` | Separate model call, tool-call decoding, policy check, execution, suspension, and final response. Each phase produces a typed result and one terminal reason. |
 | Exact server-held confirmation payload | `lib/chat/tool-confirmation/*` | Persist the exact tool name, canonical arguments, target IDs, proposed display summary, session ID, and expiry before asking for confirmation. On approval, execute that stored payload once instead of asking the model to reconstruct it. |
 | Trusted post-confirmation state | `lib/chat/agent-loop.ts` | Resume with a system-owned outcome of `completed`, `failed`, `partial`, or `declined`. A completed write is already done and must not be proposed, retried, or re-read merely because the resumed prompt contains the earlier proposal. |
-| Bounded active tool catalog | `lib/tools/mcp-bridge/active-catalog.ts` | Cafe OS is already below the threshold that needs discovery. Keep all nine tools eager and disable Hermes tool search for this profile. |
-| Tool schemas as versioned wire contracts | `lib/tools/agent-tool-snapshot.ts`, `test/agent-tool-definitions.test.ts` | Commit a stable snapshot or normalized hash of the nine advertised schemas. Require an intentional fixture update when a name, description, field, type, enum, or order changes. |
+| Bounded active tool catalog | `lib/tools/mcp-bridge/active-catalog.ts`, `catalog-search.ts` | Keep the full Cafe catalog discoverable, preload the most relevant tools from the current request, and cap the active subset. Discovery should expand the request-scoped subset rather than exposing the whole future catalog. |
+| Tool schemas as versioned wire contracts | `lib/tools/agent-tool-snapshot.ts`, `test/agent-tool-definitions.test.ts` | Commit a stable snapshot or normalized hash of the full discoverable Cafe catalog and its discovery controls. Require an intentional fixture update when a name, description, field, type, enum, or order changes. |
 | Aggregate completion and result budgets | `lib/chat/completion-token-budget.ts`, `tool-result-budget.ts` | Enforce a per-user-turn output budget across every hop, plus a bounded tool-result payload. Refuse another model hop below the safe response floor. |
 | Explicit termination reasons | `lib/chat/turn-termination.ts` | Record `completed`, `needs_confirmation`, `needs_clarification`, `tool_failed`, `invalid_tool_call`, `duplicate_call`, `hop_limit`, `token_limit`, or `wall_clock_limit`. |
 | Payload-free telemetry | `lib/chat/tool-telemetry.ts` | Log IDs, tool name, kind, duration, success, error code, hop count, cache tokens, and terminal reason. Never log credentials, arguments, invoice data, supplier prices, tool results, or confirmation summaries. |
@@ -88,15 +89,21 @@ Hive Mind is structurally different, so the useful material is a set of invarian
 
 ## Proposed implementation
 
-### 1. Lock down the eval and operations profiles
+### 1. Bound and instrument dynamic discovery
 
 Update `scripts/setup-hermes-eval.sh` and the trusted operations profile setup:
 
-- Set `tools.tool_search.enabled` to `off` for Cafe OS profiles. Nine tools do not justify progressive disclosure.
-- Verify the provider receives the nine direct `mcp__cafe_os__*` definitions and no `tool_search`, `tool_describe`, or `tool_call` bridge definitions.
+- Keep dynamic discovery enabled for the Cafe OS catalog.
+- Make `query_records` always active because almost every operational workflow needs identity or foreign-key resolution.
+- Before the first model hop, score the latest substantive request against tool names, descriptions, and parameter metadata. Preload a bounded set of the most relevant Cafe tools with deterministic tie-breaking.
+- Carry the preceding request into discovery when the latest message is a short confirmation or clarification such as “yes,” “the second one,” or “confirm it.”
+- Keep the discovery control available whenever undisclosed Cafe tools remain. If a tool is found, attach its real schema directly to the request-scoped active catalog for subsequent hops.
+- Prefer one search-and-activate step. Do not require separate search, describe, and generic wrapper calls when Hermes' extension boundary allows the discovered definition to become directly callable.
+- Start with a maximum of six active Cafe tools per request and make the limit configurable. Revisit this number as the catalog grows and prompt-size measurements change.
+- Keep active tools stable for the duration of one request. Rebuild the active subset for the next request so unrelated tools and context do not accumulate.
 - Explicitly disable all built-in toolsets for this profile, including terminal, code execution, file access, browser, web, memory, delegation, cron, messaging, skills management, and todo tools.
 - Keep Telegram and Discord disabled in the eval profile.
-- Add a startup assertion that the advertised tool-name set equals the expected nine Cafe OS names. Abort the run on extra or missing tools.
+- Add a startup assertion that every discoverable domain tool belongs to the `cafe_os` namespace and that no built-in or unrelated MCP tools are visible. Assert the expected initial active subset per eval request rather than one static global set.
 - Retain medium reasoning, the 16,384 total output cap, 19 tool iterations plus Hermes' one wrap-up call, and the 90-second wall-clock cap until the optimized baseline proves that lower limits are safe.
 
 First proof command:
@@ -105,11 +112,11 @@ First proof command:
 hermes -p cafe-eval prompt-size --toolsets cafe_os
 ```
 
-Also capture the actual advertised schemas in a test fixture. The fixture should be produced from the profile that the eval runner invokes, not from a separate hand-built representation.
+Also capture the full discoverable catalog, discovery-control schemas, and representative preloaded subsets in test fixtures. The fixtures should be produced from the profile that the eval runner invokes, not from a separate hand-built representation.
 
 ### 2. Make the existing tools easier to select correctly
 
-Keep the nine-tool surface. Improve the existing contracts instead of adding one tool per question.
+Improve the current tool contracts without freezing the catalog at nine tools or adding one tool per question.
 
 `query_records`:
 
@@ -237,8 +244,11 @@ Do not emit tool arguments, results, record contents, local paths, confirmation 
 
 Add deterministic assertions for:
 
-- exact advertised tool-name set;
-- no bridge or non-Cafe tool calls;
+- complete and schema-stable discoverable Cafe catalog;
+- deterministic request-specific preload set;
+- no repeated discovery query for the same capability;
+- no malformed discovery or wrapper envelopes;
+- no non-Cafe tool calls;
 - no identical duplicate read within a turn;
 - no read after a complete successful write;
 - exact preservation of requested names;
@@ -253,8 +263,8 @@ Keep the current verbose report mode. Add a sanitized trajectory summary that gr
 
 ## Implementation sequence
 
-1. Profile lockdown and advertised-tool assertion.
-2. Disable tool discovery and establish a new single-scenario baseline.
+1. Profile lockdown, full-catalog snapshot, and namespace assertion.
+2. Deterministic initial preloading with bounded request-scoped discovery, followed by a new single-scenario baseline.
 3. Prompt cleanup for language, ambiguity, exact values, successful-write finality, and direct arithmetic.
 4. Query ergonomics and concise authoritative write receipts.
 5. Request-scoped duplicate-call and post-write-read policy.
@@ -278,8 +288,12 @@ Correctness and safety release gate:
 
 Tool behavior release gate:
 
-- The model-visible tool set is exactly the nine Cafe OS MCP tools.
-- Zero `tool_search`, `tool_describe`, wrapper `tool_call`, terminal, code, file, browser, web, memory, or delegation calls.
+- Every discoverable domain tool belongs to the Cafe OS namespace, and the full catalog matches its reviewed schema snapshot.
+- The first model hop receives a deterministic, bounded subset relevant to the active request.
+- Discovery remains available for non-preloaded and future Cafe capabilities, and an activated tool remains directly usable for the rest of that request.
+- A workflow makes at most one discovery query for a distinct missing capability and never repeats a description lookup it already completed.
+- Zero malformed discovery or wrapper calls.
+- Zero terminal, code, file, browser, web, memory, delegation, or non-Cafe MCP calls.
 - Zero identical duplicate reads in a user turn.
 - Zero routine reads after a successful write response.
 - A confirmed mutation executes its stored canonical payload exactly once.
@@ -332,9 +346,9 @@ Commit a new reviewed, secret-free baseline under `evals/hermes-operations/basel
 - Patching Hermes upstream gives the strongest loop control but increases maintenance burden. Prefer profile configuration and a Cafe-owned TypeScript boundary first.
 - Server-held confirmation state adds storage and expiry semantics. It is justified because exact-once writes and exact field preservation are core operational requirements.
 - Read deduplication must not hide a legitimate post-write state change. Reset or version the read cache after any write attempt with an ambiguous outcome.
-- Aggressive token caps can create incomplete confirmations. Tune caps only after the direct tool surface and prompt cleanup remove unnecessary hops.
+- Aggressive token caps can create incomplete confirmations. Tune caps only after request-specific preloading, discovery cleanup, and prompt cleanup remove unnecessary hops.
 - Cost is a secondary metric. A cheaper run that guesses a record, changes a name, skips confirmation, or writes the wrong target still fails.
 
 ## Definition of done
 
-The ticket is complete when the full deterministic suite passes, the exact nine-tool surface is proven at runtime, confirmation executes a stored canonical operation once, no general-purpose tools appear in Cafe trajectories, and the new benchmark meets the hop and cost targets without relaxing safety assertions.
+The ticket is complete when the full deterministic suite passes, the dynamic Cafe catalog and bounded request-specific activation are proven at runtime, confirmation executes a stored canonical operation once, no general-purpose tools appear in Cafe trajectories, and the new benchmark meets the hop and cost targets without relaxing safety assertions.
