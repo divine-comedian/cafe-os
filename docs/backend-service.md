@@ -23,7 +23,9 @@ GET http://127.0.0.1:8100/healthz
 GET http://127.0.0.1:8100/openapi.json
 ```
 
-All `/v1` routes require `Authorization: Bearer …`.
+All `/v1` routes require `Authorization: Bearer …`. The bearer may be the private automation token or an access token issued by the local Supabase Auth service. User tokens are validated server-side before any service-role operation runs.
+
+`GET /app-config.json` is public and returns only the Supabase public URL and publishable key needed by the browser. The built frontend is served at `/`.
 
 ## Resources
 

@@ -17,8 +17,10 @@ read_value() {
 }
 
 service_key="$(read_value SERVICE_ROLE_KEY)"
-if [ -z "$service_key" ]; then
-  printf 'SERVICE_ROLE_KEY is missing from %s\n' "$supabase_env" >&2
+publishable_key="$(read_value SUPABASE_PUBLISHABLE_KEY)"
+public_url="$(read_value SUPABASE_PUBLIC_URL)"
+if [ -z "$service_key" ] || [ -z "$publishable_key" ] || [ -z "$public_url" ]; then
+  printf 'Required Supabase API or public URL settings are missing from %s\n' "$supabase_env" >&2
   exit 1
 fi
 
@@ -35,6 +37,8 @@ temp_env="$(mktemp "$runtime_dir/cafe-api.env.XXXXXX")"
 chmod 600 "$temp_env"
 {
   printf 'SUPABASE_URL=http://api-gw:8000\n'
+  printf 'SUPABASE_PUBLIC_URL=%s\n' "$public_url"
+  printf 'SUPABASE_PUBLISHABLE_KEY=%s\n' "$publishable_key"
   printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$service_key"
   printf 'CAFE_API_TOKEN=%s\n' "$api_token"
   printf 'PURCHASE_DOCUMENT_BUCKET=purchase-documents\n'

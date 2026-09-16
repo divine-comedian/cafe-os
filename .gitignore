@@ -16,6 +16,17 @@
 # Generated self-hosted Supabase deployment, credentials, and persistent data.
 supabase/
 
+# Local worktrees
+.worktrees/
+
+# Generated frontend build
+services/cafe-api/public/
+
+# Node and TypeScript build output
+**/node_modules/
+**/dist/
+*.tsbuildinfo
+
 # Local data, exports, and caches
 data/
 exports/

@@ -1,7 +1,8 @@
 services:
   cafe-api:
     build:
-      context: ./services/cafe-api
+      context: .
+      dockerfile: services/cafe-api/Dockerfile
     env_file:
       - ./runtime/cafe-api.env
     restart: unless-stopped

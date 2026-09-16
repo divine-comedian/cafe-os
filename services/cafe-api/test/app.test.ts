@@ -1,16 +1,30 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { AccessTokenVerifier } from "../src/auth.js";
 import { Config } from "../src/config.js";
 import { CafeStore, Row, TableName } from "../src/store.js";
 
 const config: Config = {
   supabaseUrl: "http://supabase.invalid",
+  supabasePublicUrl: "http://supabase.example.test",
+  supabasePublishableKey: "test-publishable-key",
   supabaseServiceRoleKey: "test-service-key",
   apiToken: "test-api-token",
   storageBucket: "purchase-documents",
   host: "127.0.0.1",
   port: 8100,
   maxUploadBytes: 1024 * 1024,
+};
+
+const accessTokenVerifier: AccessTokenVerifier = {
+  async verify(accessToken) {
+    return accessToken === "valid-user-token"
+      ? {
+          id: "00000000-0000-4000-8000-000000000001",
+          email: "operator@example.test",
+        }
+      : null;
+  },
 };
 
 class MemoryStore implements CafeStore {
@@ -68,6 +82,39 @@ describe("Cafe API", () => {
     const response = await app.inject({ method: "GET", url: "/v1/providers" });
     expect(response.statusCode).toBe(401);
     expect(response.json().error.code).toBe("UNAUTHORIZED");
+  });
+
+  it("accepts an authenticated Supabase user access token", async () => {
+    const app = await buildApp({
+      config,
+      store: new MemoryStore(),
+      accessTokenVerifier,
+      logger: false,
+    });
+    apps.push(app);
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/providers",
+      headers: { authorization: "Bearer valid-user-token" },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("publishes only browser-safe Supabase configuration", async () => {
+    const app = await buildApp({
+      config,
+      store: new MemoryStore(),
+      accessTokenVerifier,
+      logger: false,
+    });
+    apps.push(app);
+    const response = await app.inject({ method: "GET", url: "/app-config.json" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      supabase_url: "http://supabase.example.test",
+      supabase_publishable_key: "test-publishable-key",
+    });
+    expect(response.body).not.toContain("service-role");
   });
 
   it("normalizes provider input and rejects unknown fields", async () => {
