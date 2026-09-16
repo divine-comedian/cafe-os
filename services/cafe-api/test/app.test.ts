@@ -172,7 +172,7 @@ describe("Cafe API", () => {
     expect(invalid.json().error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("creates a purchase and a new reusable green-coffee lot together", async () => {
+  it("creates a purchase without a date and a new reusable green-coffee lot together", async () => {
     const store = new MemoryStore();
     const providerId = crypto.randomUUID();
     store.rows.providers.push({ id: providerId, name: "Finca Test" });
@@ -185,7 +185,6 @@ describe("Cafe API", () => {
       headers: { authorization: "Bearer test-api-token" },
       payload: {
         provider_id: providerId,
-        purchased_at: "2026-09-16",
         total_amount: "2400.00",
         currency: "MXN",
         received_weight_kg: "20.000",

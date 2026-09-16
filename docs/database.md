@@ -24,7 +24,7 @@ Every table uses a UUID primary key and a `created_at` timestamp. Records are li
 
 - `provider_id`
 - `green_coffee_lot_id`
-- `purchased_at`
+- optional `purchased_at`
 - `received_weight_kg`
 - `status`: `draft`, `confirmed`, or `void`
 - `total_amount`

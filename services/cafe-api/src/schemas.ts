@@ -46,7 +46,7 @@ export const PurchaseCreateSchema = Type.Object(
   {
     provider_id: Uuid,
     green_coffee_lot_id: Uuid,
-    purchased_at: DateString,
+    purchased_at: Type.Optional(Type.Union([DateString, Type.Null()])),
     received_weight_kg: DecimalInput,
     total_amount: Type.Optional(NullableDecimal),
     currency: Type.Optional(Type.String({ default: "MXN" })),
@@ -59,7 +59,7 @@ export const PurchaseCreateSchema = Type.Object(
 export const PurchaseWithGreenCoffeeLotCreateSchema = Type.Object(
   {
     provider_id: Uuid,
-    purchased_at: DateString,
+    purchased_at: Type.Optional(Type.Union([DateString, Type.Null()])),
     total_amount: DecimalInput,
     currency: Type.Optional(Type.String({ default: "MXN" })),
     payment_method: Type.Optional(NullableString),
@@ -83,7 +83,7 @@ export const PurchasePatchSchema = Type.Object(
   {
     provider_id: Type.Optional(Uuid),
     green_coffee_lot_id: Type.Optional(Uuid),
-    purchased_at: Type.Optional(DateString),
+    purchased_at: Type.Optional(Type.Union([DateString, Type.Null()])),
     received_weight_kg: Type.Optional(DecimalInput),
     total_amount: Type.Optional(NullableDecimal),
     currency: Type.Optional(Type.String()),

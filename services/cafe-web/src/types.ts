@@ -12,7 +12,7 @@ export interface Purchase {
   id: string;
   provider_id: string;
   green_coffee_lot_id: string;
-  purchased_at: string;
+  purchased_at: string | null;
   received_weight_kg: string | number;
   status: Status;
   total_amount: string | number | null;

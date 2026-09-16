@@ -116,7 +116,9 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
         const purchase = await store.create("purchases", {
           provider_id: request.body.provider_id,
           green_coffee_lot_id: greenCoffeeLot.id,
-          purchased_at: request.body.purchased_at,
+          ...(hasOwn(request.body, "purchased_at")
+            ? { purchased_at: request.body.purchased_at }
+            : {}),
           received_weight_kg: receivedWeight,
           total_amount: amount,
           currency: normalizeCurrency(request.body.currency ?? "MXN"),
@@ -165,7 +167,9 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
       const input: Row = {
         provider_id: request.body.provider_id,
         green_coffee_lot_id: request.body.green_coffee_lot_id,
-        purchased_at: request.body.purchased_at,
+        ...(hasOwn(request.body, "purchased_at")
+          ? { purchased_at: request.body.purchased_at }
+          : {}),
         received_weight_kg: requirePositiveDecimal(
           normalizeDecimal(request.body.received_weight_kg, "received_weight_kg"),
           "received_weight_kg",
@@ -200,7 +204,7 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
         );
         input.green_coffee_lot_id = request.body.green_coffee_lot_id;
       }
-      if (request.body.purchased_at !== undefined) input.purchased_at = request.body.purchased_at;
+      if (hasOwn(request.body, "purchased_at")) input.purchased_at = request.body.purchased_at;
       if (request.body.received_weight_kg !== undefined) {
         input.received_weight_kg = requirePositiveDecimal(
           normalizeDecimal(request.body.received_weight_kg, "received_weight_kg"),

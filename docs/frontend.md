@@ -83,7 +83,7 @@ Vite serves `http://127.0.0.1:5173` and proxies API/config requests to port `810
 The interface keeps required entry fields short and shows an exact review step before every write:
 
 - Provider: name and optional region.
-- Purchase: provider, date, total, received weight, optional payment method, and either an existing green-coffee lot or a new lot entered inline. Several purchases can select the same lot.
+- Purchase: provider, total, received weight, optional date/payment method, and either an existing green-coffee lot or a new lot entered inline. Several purchases can select the same lot.
 - Green-coffee lot: name, variety, and optional origin. Weight and amount belong to purchases rather than the reusable lot identity.
 - Roast batch: lot, timestamp, green input, roasted output, and optional duration.
 

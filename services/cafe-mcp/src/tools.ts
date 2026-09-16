@@ -124,7 +124,7 @@ export function registerCafeTools(server: McpServer, client: CafeApiPort): void 
       inputSchema: z.object({
         provider_id: uuid,
         green_coffee_lot_id: uuid,
-        purchased_at: z.string().date().describe("Calendar date in YYYY-MM-DD format"),
+        purchased_at: z.string().date().nullable().optional().describe("Calendar date in YYYY-MM-DD format when known"),
         received_weight_kg: decimal.describe("Purchased green-coffee weight in kilograms"),
         total_amount: nullableDecimal.optional(),
         currency: z.string().default("MXN").describe("ISO 4217 currency code"),
@@ -193,7 +193,7 @@ export function registerCafeTools(server: McpServer, client: CafeApiPort): void 
         .object({
           provider_id: uuid.optional(),
           green_coffee_lot_id: uuid.optional(),
-          purchased_at: z.string().date().optional(),
+          purchased_at: z.string().date().nullable().optional(),
           received_weight_kg: decimal.optional(),
           total_amount: nullableDecimal.optional(),
           currency: z.string().optional(),
