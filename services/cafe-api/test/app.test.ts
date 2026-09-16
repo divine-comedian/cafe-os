@@ -117,6 +117,26 @@ describe("Cafe API", () => {
     expect(response.body).not.toContain("service-role");
   });
 
+  it("accepts pagination on every filtered collection route", async () => {
+    const app = await buildApp({
+      config,
+      store: new MemoryStore(),
+      accessTokenVerifier,
+      logger: false,
+    });
+    apps.push(app);
+    const headers = { authorization: "Bearer test-api-token" };
+
+    for (const path of [
+      "/v1/purchases?limit=100&offset=0",
+      "/v1/green-coffee-lots?limit=100&offset=0",
+      "/v1/roast-batches?limit=100&offset=0",
+    ]) {
+      const response = await app.inject({ method: "GET", url: path, headers });
+      expect(response.statusCode, path).toBe(200);
+    }
+  });
+
   it("normalizes provider input and rejects unknown fields", async () => {
     const app = await buildApp({ config, store: new MemoryStore(), logger: false });
     apps.push(app);

@@ -17,13 +17,12 @@ export const NullableString = Type.Union([Type.String(), Type.Null()]);
 export const NullableDecimal = Type.Union([DecimalInput, Type.Null()]);
 
 export const IdParams = Type.Object({ id: Uuid }, options);
-export const PaginationQuery = Type.Object(
-  {
-    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 50 })),
-    offset: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
-  },
-  options,
-);
+const paginationProperties = {
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 50 })),
+  offset: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
+};
+
+export const PaginationQuery = Type.Object(paginationProperties, options);
 
 export const ProviderCreateSchema = Type.Object(
   {
@@ -129,40 +128,39 @@ export const RoastBatchPatchSchema = Type.Object(
   patchOptions,
 );
 
-export const PurchaseListQuery = Type.Intersect([
-  PaginationQuery,
-  Type.Object(
-    {
-      provider_id: Type.Optional(Uuid),
-      status: Type.Optional(Type.Union([
-        Type.Literal("draft"),
-        Type.Literal("confirmed"),
-        Type.Literal("void"),
-      ])),
-    },
-    options,
-  ),
-]);
+export const PurchaseListQuery = Type.Object(
+  {
+    ...paginationProperties,
+    provider_id: Type.Optional(Uuid),
+    status: Type.Optional(Type.Union([
+      Type.Literal("draft"),
+      Type.Literal("confirmed"),
+      Type.Literal("void"),
+    ])),
+  },
+  options,
+);
 
-export const GreenCoffeeListQuery = Type.Intersect([
-  PaginationQuery,
-  Type.Object({ purchase_id: Type.Optional(Uuid) }, options),
-]);
+export const GreenCoffeeListQuery = Type.Object(
+  {
+    ...paginationProperties,
+    purchase_id: Type.Optional(Uuid),
+  },
+  options,
+);
 
-export const RoastBatchListQuery = Type.Intersect([
-  PaginationQuery,
-  Type.Object(
-    {
-      green_coffee_lot_id: Type.Optional(Uuid),
-      status: Type.Optional(Type.Union([
-        Type.Literal("draft"),
-        Type.Literal("confirmed"),
-        Type.Literal("void"),
-      ])),
-    },
-    options,
-  ),
-]);
+export const RoastBatchListQuery = Type.Object(
+  {
+    ...paginationProperties,
+    green_coffee_lot_id: Type.Optional(Uuid),
+    status: Type.Optional(Type.Union([
+      Type.Literal("draft"),
+      Type.Literal("confirmed"),
+      Type.Literal("void"),
+    ])),
+  },
+  options,
+);
 
 export type IdParamsType = Static<typeof IdParams>;
 export type PaginationQueryType = Static<typeof PaginationQuery>;
