@@ -1,0 +1,23 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Hermes runtime state belongs in ~/.hermes, never in this repository.
+.hermes/
+
+# Local data, exports, and caches
+data/
+exports/
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+.venv/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
