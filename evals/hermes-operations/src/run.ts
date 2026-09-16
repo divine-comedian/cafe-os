@@ -174,7 +174,6 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
       "--provider", options.provider,
       "--reasoning", options.reasoning,
       "--toolsets", "cafe_os",
-      "--skills", "cafe-os-operations",
       "--in", projectRoot,
     ];
     if (sessionId) args.push("--resume", sessionId);
@@ -257,6 +256,8 @@ async function main(): Promise<void> {
   const selected = options.scenarioIds.length ? scenarios.filter((scenario) => options.scenarioIds.includes(scenario.id)) : scenarios;
   if (!selected.length) throw new Error("No matching eval scenarios.");
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  await fs.access(path.join(projectRoot, ".hermes/skills/cafe-os-operations/SKILL.md"));
+  await fs.access(path.join(projectRoot, "services/cafe-mcp/dist/server.js"));
   const outDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", options.outDir);
   await fs.mkdir(outDir, { recursive: true });
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "cafe-hermes-eval-"));
