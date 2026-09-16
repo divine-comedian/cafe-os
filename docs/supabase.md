@@ -12,7 +12,7 @@ Cafe OS runs the official Supabase Docker deployment from `supabase/`. The gener
 - Transaction-mode pooler: `127.0.0.1:6543`
 - Public Auth signup: disabled during database design
 - Analytics/Logflare: not enabled
-- Application tables in `public`: none
+- Application tables in `public`: `providers`, `purchases`, `green_coffee_lots`, and `roast_batches`
 
 The deployment uses generated asymmetric signing keys and rotated credentials. Its `.env` is owner-readable only (`0600`). Do not copy values from that file into Git, chat, tickets, or logs.
 
@@ -61,13 +61,12 @@ sh run.sh secrets
 
 That command prints credentials to the terminal. Do not paste its output into chat.
 
-## Empty-database boundary
+## Application-data boundary
 
-Starting Supabase necessarily creates its built-in schemas, roles, extensions, and Auth/Storage/Realtime metadata. No Cafe OS schema, migration, application role, application table, seed data, or bucket has been created. Keep `public` empty until the MVP data model is agreed.
+Supabase creates its built-in schemas, roles, extensions, and Auth/Storage/Realtime metadata. Cafe OS adds four application tables and the private `purchase-documents` bucket through the tracked migrations in `db/migrations/`. See `docs/database.md` for the current application shape.
 
 ## Before production use
 
-- Decide the application schema and migration workflow.
 - Create a least-privilege application/agent role instead of using `postgres`.
 - Configure tested, off-host database and storage backups.
 - Configure SMTP before enabling email-based Auth.

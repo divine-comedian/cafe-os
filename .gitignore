@@ -14,6 +14,7 @@ supabase/
 # Local data, exports, and caches
 data/
 exports/
+runtime/
 *.db
 *.db-shm
 *.db-wal

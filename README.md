@@ -15,7 +15,8 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - Telegram accepts messages from any user. Its public toolset excludes shell, file-write, cron, messaging, and shared-memory access.
 - Remote admin slash commands are disabled; public users receive only the documented safe command set.
 - The gateway runs as an enabled per-user systemd service and starts automatically at boot.
-- A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports; its `public` schema has no application tables.
+- A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema.
+- The TypeScript Cafe API is running on `127.0.0.1:8100`; it is not connected to the public Hermes toolset.
 
 ## Finish setup
 
@@ -46,8 +47,12 @@ The user service plus systemd lingering is intentional on this headless host: it
 - `scripts/bootstrap-hermes.sh` — idempotent headless runtime/config setup.
 - `scripts/validate-hermes.sh` — non-secret readiness checks.
 - `scripts/db.sh` — password-free shell into the local Supabase Postgres container.
+- `scripts/cafe-api.sh` — build and operate the loopback-only TypeScript API.
+- `services/cafe-api/` — Fastify REST API, validation helpers, and tests.
+- `compose.cafe.yml` — API deployment joined to the private Supabase network.
 - `db/migrations/` — ordered SQL migrations for the Cafe OS database.
 - `docs/database.md` — current schema, calculations, Storage convention, and access posture.
+- `docs/backend-service.md` — REST routes, middleware, validation, and operations.
 - `docs/supabase.md` — self-hosted Supabase operations and security runbook.
 - `docs/headless-deployment.md` — Telegram, OpenRouter, voice, and systemd runbook.
 - `docs/project-roadmap.md` — phased product direction extracted from the project notes.
