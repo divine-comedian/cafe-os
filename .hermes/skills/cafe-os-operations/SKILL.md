@@ -22,6 +22,7 @@ Use the Cafe OS MCP tools to read and, only with human approval, change the oper
 - Never invent provider IDs, dates, prices, quantities, currency, payment methods, lot details, roast measurements, or notes. Ask for missing required values.
 - Do not infer a missing green-coffee lot, even when only one lot exists. A roast requires the operator to name or identify its source lot. Before preparing a new green-coffee lot, obtain its unit cost per kg; ask instead of creating an incomplete proposal.
 - State units and currency on every operational number. Use MXN only when the user supplied no currency.
+- Preserve stored calendar dates as `YYYY-MM-DD`; do not localize or reorder their components.
 - Keep green input weight, roasted output weight, and packaged or sold weight distinct.
 - Keep supplier prices, invoices, margins, and customer data in authorized private operations chats. Do not repeat them into general group channels.
 - A record's `draft` status means it is still unconfirmed. Only call the status tool after the human explicitly confirms or voids it.

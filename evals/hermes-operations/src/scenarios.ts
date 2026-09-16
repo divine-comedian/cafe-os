@@ -253,7 +253,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["query_records", "set_record_status"], allowedTools: ["query_records", "set_record_status"],
           minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
-          responsePatterns: ["2026-09-14", "12[,.]?500", "confirm"],
+          responsePatterns: ["2026-09-14", "12(?:[\\s,.])?500", "confirm"],
           toolCallContains: [{ name: "set_record_status", arguments: { resource: "purchase", id: IDS.draftPurchase, status: "confirmed" } }],
         },
       },

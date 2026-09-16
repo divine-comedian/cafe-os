@@ -38,7 +38,7 @@ npm run build
 - `CAFE_MCP_CONTEXT_ID` binds pending operations to the trusted operator profile; Hermes additionally binds confirmation IDs to the active session transcript.
 - `CAFE_MCP_PENDING_TTL_MS` defaults to 15 minutes.
 - `CAFE_TOOL_ROUTER_MODEL` defaults to `deepseek/deepseek-v4.1-flash`; router reasoning is disabled and its output is capped at 256 tokens.
-- `CAFE_TOOL_ROUTER_TIMEOUT_MS` defaults to 8 seconds; the host subprocess allows 10 seconds so the TypeScript router can return its typed fallback cleanly.
+- `CAFE_TOOL_ROUTER_TIMEOUT_MS` defaults to 20 seconds; the host subprocess allows 22 seconds so the TypeScript router can return its typed fallback cleanly when OpenRouter is slow.
 
 The Hermes boundary limits the active catalog to five routed tools plus discovery, allows at most one discovery call, caps each tool result at 24,000 serialized characters and aggregate results at 48,000 characters per turn, reserves at most 4,096 completion tokens per model hop, and enforces an 8,192-token aggregate turn budget.
 

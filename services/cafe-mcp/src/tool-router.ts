@@ -37,6 +37,9 @@ export interface ToolRouterResult {
   confidence: number;
   model: string;
   durationMs: number;
+  missingRequiredFields?: string[];
+  requiresUserInput?: string[];
+  lookupResource?: "provider" | "purchase" | "green_coffee_lot" | "roast_batch" | "unknown";
   fallbackReason?: string;
   usage?: {
     inputTokens: number;
@@ -75,7 +78,7 @@ export function loadToolRouterConfig(env: NodeJS.ProcessEnv = process.env): Tool
     apiKey: env.OPENROUTER_API_KEY?.trim() ?? "",
     model: env.CAFE_TOOL_ROUTER_MODEL?.trim() || "deepseek/deepseek-v4.1-flash",
     baseUrl: (env.CAFE_TOOL_ROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1").replace(/\/+$/, ""),
-    timeoutMs: positiveInteger(env.CAFE_TOOL_ROUTER_TIMEOUT_MS, 8_000),
+    timeoutMs: positiveInteger(env.CAFE_TOOL_ROUTER_TIMEOUT_MS, 20_000),
     maxTokens: positiveInteger(env.CAFE_TOOL_ROUTER_MAX_TOKENS, 256),
     maxTools: Math.min(5, positiveInteger(env.CAFE_TOOL_ROUTER_MAX_TOOLS, 5)),
     confidenceFloor: Math.max(0, Math.min(1, numeric(env.CAFE_TOOL_ROUTER_CONFIDENCE_FLOOR, 0.55))),
@@ -164,8 +167,35 @@ function selectionTool(allowedNames: CafeToolName[], maxTools: number) {
             uniqueItems: true,
           },
           confidence: { type: "number", minimum: 0, maximum: 1 },
+          missing_required_fields: {
+            type: "array",
+            description:
+              "Required facts explicitly absent from the request. For a green-coffee lot without cost or price per kg, include unit_cost_per_kg.",
+            items: {
+              type: "string",
+              enum: ["provider_id", "purchase_id", "green_coffee_lot_id", "unit_cost_per_kg", "target_id", "file_path"],
+            },
+            maxItems: 6,
+            uniqueItems: true,
+          },
+          requires_user_input: {
+            type: "array",
+            description:
+              "Missing facts the user must supply because they cannot be resolved from a named stored record. Do not include an ID when the request names the record to look up.",
+            items: {
+              type: "string",
+              enum: ["provider_id", "purchase_id", "green_coffee_lot_id", "unit_cost_per_kg", "target_id", "file_path"],
+            },
+            maxItems: 6,
+            uniqueItems: true,
+          },
+          lookup_resource: {
+            type: "string",
+            description: "The record type query_records must resolve first, or unknown when no lookup is needed.",
+            enum: ["provider", "purchase", "green_coffee_lot", "roast_batch", "unknown"],
+          },
         },
-        required: ["intent", "tool_ids", "confidence"],
+        required: ["intent", "tool_ids", "confidence", "missing_required_fields", "requires_user_input", "lookup_resource"],
       },
     },
   };
@@ -188,6 +218,7 @@ function parseSelection(
   allowed: Set<string>,
   config: ToolRouterConfig,
   started: number,
+  context: string,
 ): ToolRouterResult {
   const call = response.choices?.[0]?.message?.tool_calls?.find(
     (candidate) => candidate.function?.name === ROUTER_FUNCTION_NAME,
@@ -204,13 +235,33 @@ function parseSelection(
   }
   const record = value as Record<string, unknown>;
   const rawIds = Array.isArray(record.tool_ids) ? record.tool_ids : [];
+  const missingRequiredFields = Array.isArray(record.missing_required_fields)
+    ? [...new Set(record.missing_required_fields.filter((item): item is string => typeof item === "string"))]
+    : [];
+  const requiresUserInput = (Array.isArray(record.requires_user_input)
+    ? [...new Set(record.requires_user_input.filter((item): item is string => typeof item === "string"))]
+    : [])
+    .filter((field) => !(field === "file_path" && context.includes("[attachment-path]")));
+  const lookupResource = ["provider", "purchase", "green_coffee_lot", "roast_batch", "unknown"].includes(String(record.lookup_resource))
+    ? record.lookup_resource as ToolRouterResult["lookupResource"]
+    : "unknown";
+  const requiredInputByTool: Partial<Record<CafeToolName, string[]>> = {
+    create_purchase: ["provider_id"],
+    create_green_coffee_lot: ["purchase_id", "unit_cost_per_kg"],
+    create_roast_batch: ["green_coffee_lot_id"],
+    update_record: ["target_id"],
+    set_record_status: ["target_id"],
+    delete_record: ["target_id"],
+    upload_purchase_document: ["purchase_id", "file_path"],
+  };
   const toolIds = [...new Set(rawIds)]
     .filter((item): item is string => typeof item === "string" && allowed.has(item))
     .filter(isCafeToolName)
+    .filter((item) => !(requiredInputByTool[item] ?? []).some((field) => requiresUserInput.includes(field)))
     .slice(0, config.maxTools);
   const confidence = typeof record.confidence === "number" ? record.confidence : 0;
-  if (!toolIds.length) return fallback(config, started, "no_valid_router_tools");
   if (confidence < config.confidenceFloor) return fallback(config, started, "router_low_confidence");
+  if (!toolIds.length && !requiresUserInput.length) return fallback(config, started, "no_valid_router_tools");
   return {
     ok: true,
     intent: typeof record.intent === "string" ? record.intent.slice(0, 80) : "cafe_operation",
@@ -218,6 +269,9 @@ function parseSelection(
     confidence,
     model: config.model,
     durationMs: Date.now() - started,
+    missingRequiredFields,
+    requiresUserInput,
+    lookupResource,
     usage: {
       inputTokens: Number(response.usage?.prompt_tokens ?? 0),
       outputTokens: Number(response.usage?.completion_tokens ?? 0),
@@ -252,7 +306,7 @@ export async function routeCafeTools(
           {
             role: "system",
             content:
-              "You route Cafe OS operational requests. Select the smallest sufficient set of tool IDs. Include query_records whenever the request names an existing provider, purchase, green-coffee lot, or roast batch but does not supply its UUID; mutation tools need those foreign keys or target IDs. Include both query_records and the mutation tool for prepare, update, status, delete, and upload workflows that identify a stored record by name or date. A confirmation that follows an earlier request needs only the matching mutation tool. Never choose tools outside the supplied catalog.",
+              "You route Cafe OS operational requests. Select the smallest sufficient set of tool IDs. missing_required_fields lists absent API identifiers or facts. requires_user_input lists only facts the human must provide because they cannot be resolved from a named stored record; do not put an ID there when the user supplied a record name. lookup_resource is the record type query_records must resolve first. Include query_records whenever the request names an existing provider, purchase, green-coffee lot, or roast batch but does not supply its UUID. Include both query_records and the mutation tool for prepare, update, status, delete, and upload workflows that identify a stored record by name or date. A new green-coffee lot without cost per kg requires user input; a roast request with no lot name or ID requires green_coffee_lot_id from the user. A confirmation following a stored proposal needs only its mutation tool. Never choose tools outside the supplied catalog.",
           },
           { role: "user", content: `${context}\n\nAllowed Cafe catalog:\n${JSON.stringify(catalog)}` },
         ],
@@ -266,7 +320,7 @@ export async function routeCafeTools(
       signal: AbortSignal.timeout(config.timeoutMs),
     });
     if (!response.ok) return fallback(config, started, `router_http_${response.status}`);
-    return parseSelection((await response.json()) as OpenRouterResponse, new Set(allowedNames), config, started);
+    return parseSelection((await response.json()) as OpenRouterResponse, new Set(allowedNames), config, started, context);
   } catch (error) {
     return fallback(
       config,

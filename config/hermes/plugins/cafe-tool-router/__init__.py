@@ -20,6 +20,16 @@ from typing import Any
 
 _CAFE_PREFIX = "mcp__cafe_os__"
 _DISCOVERY = "discover_tools"
+_PROPOSAL_REQUIRED = {
+    "create_provider": ["name"],
+    "create_purchase": ["provider_id", "purchased_at"],
+    "create_green_coffee_lot": ["purchase_id", "received_weight_kg", "unit_cost_per_kg"],
+    "create_roast_batch": ["green_coffee_lot_id"],
+    "update_record": ["resource", "id", "fields"],
+    "set_record_status": ["resource", "id", "status"],
+    "delete_record": ["resource", "id"],
+    "upload_purchase_document": ["purchase_id", "file_path"],
+}
 _MAX_STATES = 256
 _LOCK = threading.RLock()
 _STATES: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
@@ -65,6 +75,9 @@ def _response_language(messages: Any) -> str:
         "qué", "cuál", "compras", "compra", "tenemos", "dame", "moneda", "cambies",
         "prepara", "preparar", "confirma", "confirmo", "sí", "lote", "tueste", "proveedor",
         "guarda", "guardar", "recibo", "archivo", "borrador", "elimina", "anula",
+        "necesitamos", "dar", "alta", "nota", "sería", "contacto", "prepáralo", "muéstramela",
+        "muestra", "espera", "aprobación", "únicamente", "cambios", "quiero", "estado", "carga",
+        "cuánto", "hemos", "nada", "exactamente", "datos", "todavía", "ese", "esa",
     }
     english = {
         "what", "which", "purchase", "purchases", "prepare", "confirm", "confirmed", "save",
@@ -106,7 +119,7 @@ def _route(request: dict[str, Any], request_id: str) -> dict[str, Any]:
             input=json.dumps(payload, separators=(",", ":")),
             capture_output=True,
             text=True,
-            timeout=max(1.0, float(os.environ.get("CAFE_TOOL_ROUTER_PROCESS_TIMEOUT_SECONDS", "10"))),
+            timeout=max(1.0, float(os.environ.get("CAFE_TOOL_ROUTER_PROCESS_TIMEOUT_SECONDS", "22"))),
             check=False,
             env=os.environ.copy(),
         )
@@ -233,7 +246,18 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             value for value in routed.get("toolIds", [])
             if isinstance(value, str) and value in cafe_tools and value != _DISCOVERY
         }
-        fallback = not bool(routed.get("ok")) or not selected
+        missing_required_fields = {
+            value for value in routed.get("missingRequiredFields", [])
+            if isinstance(value, str)
+        }
+        requires_user_input = {
+            value for value in routed.get("requiresUserInput", [])
+            if isinstance(value, str)
+        }
+        lookup_resource = str(routed.get("lookupResource") or "unknown")
+        if lookup_resource not in {"provider", "purchase", "green_coffee_lot", "roast_batch", "unknown"}:
+            lookup_resource = "unknown"
+        fallback = not bool(routed.get("ok")) or (not selected and not requires_user_input)
         if fallback:
             selected = set()
         kinds = {
@@ -262,6 +286,9 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "tool_result_chars": 0,
             "duplicate_calls": 0,
             "post_write_reads": 0,
+            "missing_required_fields": missing_required_fields,
+            "blocking_missing_fields": requires_user_input,
+            "lookup_resource": lookup_resource,
         }
         _put_state(session_id, turn_id, state)
         if pending_context:
@@ -279,6 +306,9 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             input_tokens=(routed.get("usage") or {}).get("inputTokens", 0),
             output_tokens=(routed.get("usage") or {}).get("outputTokens", 0),
             cost_usd=(routed.get("usage") or {}).get("costUsd"),
+            missing_required_fields=sorted(missing_required_fields),
+            requires_user_input=sorted(requires_user_input),
+            lookup_resource=lookup_resource,
             fallback_reason=routed.get("fallbackReason"),
         )
 
@@ -294,12 +324,17 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     selected = set(state["selected"])
     undisclosed = set(cafe_tools) - selected - {_DISCOVERY}
     visible = selected | ({_DISCOVERY} if not state.get("pending_bypass")
+                          and not state.get("blocking_missing_fields")
+                          and not state.get("phase_instruction")
                           and not state.get("discovery_used")
                           and (state["fallback"] or undisclosed) else set())
 
     # Operational cap: allow the expected work hops, then force a tool-free wrap-up.
     cap = 4 if state.get("routed_fallback") else 3
-    if state.get("stop_tools"):
+    if state.get("blocking_missing_fields"):
+        visible = set()
+        terminal_reason = "needs_input"
+    elif state.get("stop_tools"):
         visible = set()
         terminal_reason = str(state.get("terminal_reason") or "completed")
     elif int(api_call_count or 0) >= cap:
@@ -312,6 +347,69 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         terminal_reason = "active"
 
     filtered = [tool for short, tool in cafe_tools.items() if short in visible]
+    lookup_resource = str(state.get("lookup_resource") or "unknown")
+    if lookup_resource != "unknown" and "query_records" in visible:
+        constrained = []
+        for tool in filtered:
+            if _short_name(_tool_name(tool)) != "query_records":
+                constrained.append(tool)
+                continue
+            copied = dict(tool)
+            function = dict(copied.get("function") or {})
+            parameters = dict(function.get("parameters") or {})
+            properties = dict(parameters.get("properties") or {})
+            properties["resource"] = {
+                "type": "string",
+                "const": lookup_resource,
+                "description": f"This request must resolve a {lookup_resource} record.",
+            }
+            parameters["properties"] = properties
+            function["parameters"] = parameters
+            copied["function"] = function
+            constrained.append(copied)
+        filtered = constrained
+    if state.get("pending_bypass"):
+        confirmation_only = []
+        pending_id = next(iter(state.get("pending_ids", set())), "")
+        for tool in filtered:
+            copied = dict(tool)
+            function = dict(copied.get("function") or {})
+            function["description"] = (
+                "Execute the exact stored pending operation. Call with confirmation_id only; "
+                "no other argument is accepted."
+            )
+            function["parameters"] = {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"confirmation_id": {"type": "string", "const": pending_id}},
+                "required": ["confirmation_id"],
+            }
+            copied["function"] = function
+            confirmation_only.append(copied)
+        filtered = confirmation_only
+    else:
+        proposal_only = []
+        for tool in filtered:
+            short = _short_name(_tool_name(tool))
+            required = _PROPOSAL_REQUIRED.get(short)
+            if not required:
+                proposal_only.append(tool)
+                continue
+            copied = dict(tool)
+            function = dict(copied.get("function") or {})
+            function["description"] = (
+                "Prepare a non-writing proposal only. Do not pass confirmation_id in this turn. "
+                + str(function.get("description") or "")
+            )
+            parameters = dict(function.get("parameters") or {})
+            properties = dict(parameters.get("properties") or {})
+            properties.pop("confirmation_id", None)
+            parameters["properties"] = properties
+            parameters["required"] = required
+            function["parameters"] = parameters
+            copied["function"] = function
+            proposal_only.append(copied)
+        filtered = proposal_only
     state["visible"] = set(visible)
     updated = dict(request)
     updated["tools"] = filtered
@@ -322,21 +420,43 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "content": (
                 "The Cafe OS tool phase for this user turn is closed. Return the final answer now "
                 "without any tool call. Match the language of the latest user message. If a proposal "
-                "is pending, show its exact fields and ask for confirmation; if execution failed, "
-                "report only the actionable error."
+                "is pending, show its exact fields with units on every operational number (for example, "
+                "12 kg and 705 s) and ask for confirmation; if execution failed, report only the "
+                "actionable error."
             ),
         })
     elif state.get("phase_instruction"):
         messages.append({"role": "system", "content": str(state["phase_instruction"])})
+    elif lookup_resource != "unknown" and "query_records" in visible:
+        messages.append({
+            "role": "system",
+            "content": (
+                f"Resolve the named {lookup_resource} first with the active Cafe OS read tool. "
+                f"Its resource is fixed to {lookup_resource}; do not search another record type."
+            ),
+        })
+    if state.get("blocking_missing_fields"):
+        missing = ", ".join(sorted(state["blocking_missing_fields"]))
+        messages.append({
+            "role": "system",
+            "content": (
+                f"Required user-supplied fields are missing: {missing}. Do not call discovery or any "
+                "write tool. Use an already-selected read only if needed to resolve stored references, "
+                "then ask the user explicitly for the missing value or file."
+            ),
+        })
     language = _response_language(request.get("messages"))
     messages.append({
         "role": "system",
         "content": (
             "Response language for this turn: English only. Do not switch languages because a prior "
-            "assistant response or stored record uses Spanish."
+            "assistant response or stored record uses Spanish. Preserve stored calendar dates exactly "
+            "in YYYY-MM-DD format; do not localize them. State units on every operational number."
             if language == "en" else
             "Idioma de respuesta para este turno: solo español mexicano natural. No cambies de idioma "
-            "porque una respuesta anterior o un registro guardado use inglés."
+            "porque una respuesta anterior o un registro guardado use inglés. Conserva las fechas "
+            "guardadas exactamente en formato YYYY-MM-DD; no las localices. Indica unidades en cada "
+            "número operativo."
         ),
     })
     updated["messages"] = messages
@@ -377,7 +497,10 @@ def _pre_tool_call(*, tool_name: str = "", args: Any = None, session_id: str = "
     signature = _canonical_signature(tool_name, args)
     confirmation_id = args.get("confirmation_id") if isinstance(args, dict) else None
     if isinstance(confirmation_id, str) and confirmation_id not in state.get("pending_ids", set()):
-        return {"action": "block", "message": "POLICY_CONFIRMATION_CONTEXT: this proposal is not bound to the active session."}
+        proposal_with_stray_confirmation = not state.get("pending_bypass") and len(args) > 1
+        resumable_pending = state.get("pending_bypass") and len(state.get("pending_ids", set())) == 1
+        if not proposal_with_stray_confirmation and not resumable_pending:
+            return {"action": "block", "message": "POLICY_CONFIRMATION_CONTEXT: this proposal is not bound to the active session."}
     if signature in state["successful"]:
         state["duplicate_calls"] = int(state.get("duplicate_calls", 0)) + 1
         return {"action": "block", "message": "POLICY_DUPLICATE_CALL: this exact successful call already ran in the current task."}
@@ -427,7 +550,10 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
             exact_count = meta.get("exact_match_count") if isinstance(meta, dict) else None
             include = meta.get("include") if isinstance(meta, dict) else None
             applied_filters = meta.get("applied_filters") if isinstance(meta, dict) else None
-            if match_count == 0:
+            if state.get("blocking_missing_fields"):
+                state["stop_tools"] = True
+                state["terminal_reason"] = "needs_input"
+            elif match_count == 0:
                 state["stop_tools"] = True
                 state["terminal_reason"] = "completed"
             elif (isinstance(applied_filters, dict) and isinstance(applied_filters.get("name"), str)
@@ -435,7 +561,7 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                 state["stop_tools"] = True
                 state["terminal_reason"] = "needs_clarification"
             elif exact_count == 1 and any(name in state["selected"] for name in {
-                "create_purchase", "create_roast_batch", "update_record", "delete_record"
+                "create_purchase", "create_green_coffee_lot", "create_roast_batch", "update_record", "delete_record"
             }):
                 state["selected"].discard("query_records")
                 if "delete_record" in state["selected"]:
@@ -454,10 +580,30 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                         "The exact provider is resolved. Call create_purchase now with the supplied fields "
                         "to create the non-writing pending proposal."
                     )
+                elif "create_green_coffee_lot" in state["selected"]:
+                    state["phase_instruction"] = (
+                        "The exact purchase is resolved. Call the active Cafe OS green-lot creation tool now "
+                        "with the supplied fields to create the non-writing pending proposal."
+                    )
                 elif "create_roast_batch" in state["selected"]:
                     state["phase_instruction"] = (
                         "The exact green-coffee lot is resolved. Call create_roast_batch now with the supplied "
                         "fields to create the non-writing pending proposal."
+                    )
+            elif match_count == 1 and any(name in state["selected"] for name in {
+                "set_record_status", "upload_purchase_document"
+            }):
+                state["selected"].discard("query_records")
+                if "set_record_status" in state["selected"]:
+                    state["phase_instruction"] = (
+                        "The exact draft record is resolved. Call the active Cafe OS status tool now with its "
+                        "resource, UUID, and requested target status to create the non-writing pending proposal. "
+                        "Do not ask for approval until that proposal exists."
+                    )
+                else:
+                    state["phase_instruction"] = (
+                        "The exact purchase is resolved. Call the active Cafe OS document upload tool now with "
+                        "its UUID and the supplied file path to create the non-writing pending proposal."
                     )
             elif (include == "traceability" or (isinstance(args, dict) and isinstance(args.get("id"), str))) \
                     and not any(state["kinds"].get(name) == "write" for name in state["selected"]):
@@ -522,7 +668,46 @@ def _tool_execution(*, tool_name: str = "", args: Any = None, next_call=None,
             error_code="POLICY_NON_CAFE_TOOL",
         )
         return json.dumps({"error": "POLICY_NON_CAFE_TOOL: only Cafe OS tools are authorized."})
-    return next_call(args) if callable(next_call) else json.dumps({"error": "POLICY_EXECUTION_UNAVAILABLE"})
+    effective_args = dict(args) if isinstance(args, dict) else args
+    state = _state(session_id, turn_id)
+    if (isinstance(effective_args, dict) and state is not None and state.get("pending_bypass")
+            and len(state.get("pending_ids", set())) == 1):
+        pending_id = next(iter(state["pending_ids"]))
+        if effective_args.get("confirmation_id") != pending_id:
+            effective_args["confirmation_id"] = pending_id
+            _event(
+                "tool_args_normalized",
+                session_id=session_id,
+                turn_id=turn_id,
+                tool=_short_name(tool_name),
+                field="confirmation_id",
+                value="restored_session_pending_id",
+            )
+    if (isinstance(effective_args, dict) and state is not None and not state.get("pending_bypass")
+            and "confirmation_id" in effective_args and len(effective_args) > 1):
+        effective_args.pop("confirmation_id", None)
+        _event(
+            "tool_args_normalized",
+            session_id=session_id,
+            turn_id=turn_id,
+            tool=_short_name(tool_name),
+            field="confirmation_id",
+            value="removed_from_proposal",
+        )
+    if (_short_name(tool_name) == "query_records" and isinstance(effective_args, dict)
+            and not effective_args.get("resource") and state is not None):
+        lookup_resource = str(state.get("lookup_resource") or "unknown")
+        if lookup_resource != "unknown":
+            effective_args["resource"] = lookup_resource
+            _event(
+                "tool_args_normalized",
+                session_id=session_id,
+                turn_id=turn_id,
+                tool="query_records",
+                field="resource",
+                value=lookup_resource,
+            )
+    return next_call(effective_args) if callable(next_call) else json.dumps({"error": "POLICY_EXECUTION_UNAVAILABLE"})
 
 
 def register(ctx) -> None:

@@ -80,7 +80,7 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
   if (locale === "en") {
     results.push(check(!/^(?:¿|Encontré|Listo|Guardado|Necesito|Preparé|Compra|Propuesta|Recibo|Eliminación|Cambio|Trazabilidad|No se)\b/iu.test(response), "response language is English"));
   } else if (locale === "es-MX") {
-    results.push(check(!/^(?:I|The|Found|Saved|Which|Done|Draft|Purchase|Deletion|Provider|Receipt|Here)\b/iu.test(response), "response language is Spanish"));
+    results.push(check(!/^(?:I|The|Found|Saved|Which|Done|Draft|Purchase|Deletion|Provider|Receipt|Here|Pending|Nothing|Reply|Exact)\b/iu.test(response), "response language is Spanish"));
   }
   if (harnessEvents.length) {
     const routerEvents = harnessEvents.filter((event) => event.event === "router");
@@ -90,6 +90,11 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
     results.push(check(
       missingRouted.length === 0,
       `router selected required tools${missingRouted.length ? `; missing ${missingRouted.join(", ")}` : ""}`,
+    ));
+    const forbiddenRouted = (expectation.forbiddenTools ?? []).filter((tool) => routed.has(tool));
+    results.push(check(
+      forbiddenRouted.length === 0,
+      `router excludes forbidden tools${forbiddenRouted.length ? `; saw ${forbiddenRouted.join(", ")}` : ""}`,
     ));
     const activeToolSets = harnessEvents
       .filter((event) => event.event === "model_hop" && Array.isArray(event.active_tools))
