@@ -28,6 +28,7 @@ export interface TurnExpectation {
   stateContains?: Array<{ table: TableName; fields: Record<string, unknown> }>;
   stateAbsent?: Array<{ table: TableName; fields: Record<string, unknown> }>;
   toolCallContains?: Array<{ name: string; arguments: Record<string, unknown> }>;
+  confirmationTools?: string[];
 }
 
 export interface EvalTurn { prompt: string; expect: TurnExpectation }
@@ -38,6 +39,10 @@ export interface EvalScenario {
   turns: EvalTurn[];
 }
 export interface ToolCall { name: string; arguments: Record<string, unknown> }
+export interface HarnessEvent {
+  event: string;
+  [key: string]: unknown;
+}
 export interface UsageReport {
   estimated_cost_usd?: number | null;
   input_tokens?: number | null;
@@ -63,6 +68,7 @@ export interface TurnResult {
   sessionId: string;
   exitCode: number;
   diagnostics: string;
+  harnessEvents: HarnessEvent[];
   operations: RecordedOperation[];
   usage: UsageReport;
   durationMs: number;
@@ -97,5 +103,12 @@ export interface EvalRun {
     reasoningTokens: number;
     totalTokens: number;
     estimatedCostUsd: number;
+    routerCalls: number;
+    routerInputTokens: number;
+    routerOutputTokens: number;
+    routerCostUsd: number;
+    routerDurationMs: number;
+    combinedTokens: number;
+    combinedCostUsd: number;
   };
 }

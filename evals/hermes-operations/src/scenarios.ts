@@ -36,8 +36,9 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Necesitamos dar de alta a Cooperativa Nube, de Oaxaca. La nota sería ‘contacto en expo’. Prepáralo.",
         expect: {
-          forbiddenTools: ["create_provider", "update_record", "delete_record"], allowedTools: ["query_records"],
-          maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0, responsePatterns: ["conf[ií]rm"],
+          requiredTools: ["create_provider"], allowedTools: ["create_provider"],
+          maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0, responsePatterns: ["conf[ií]rm"],
+          toolCallContains: [{ name: "create_provider", arguments: { name: "Cooperativa Nube", region: "Oaxaca" } }],
         },
       },
       {
@@ -45,7 +46,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["create_provider"], allowedTools: ["create_provider"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "create_provider", arguments: { name: "Cooperativa Nube", region: "Oaxaca" } }],
+          confirmationTools: ["create_provider"],
           stateContains: [{ table: "providers", fields: { name: "Cooperativa Nube", region: "oaxaca", notes: "contacto en expo" } }],
         },
       },
@@ -59,9 +60,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Prepare a purchase from Café Sierra dated 2026-09-15 for MXN 3,800 paid by transfer. Note: sample lot. Show me what will be saved first.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["create_purchase"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
+          requiredTools: ["query_records", "create_purchase"], allowedTools: ["query_records", "create_purchase"],
+          minToolCalls: 2, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["3[,.]?800", "MXN", "confirm"],
+          toolCallContains: [{ name: "create_purchase", arguments: { provider_id: IDS.cafeSierra, purchased_at: "2026-09-15", total_amount: 3800 } }],
         },
       },
       {
@@ -69,7 +71,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["create_purchase"], allowedTools: ["create_purchase"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "create_purchase", arguments: { provider_id: IDS.cafeSierra, purchased_at: "2026-09-15", total_amount: 3800 } }],
+          confirmationTools: ["create_purchase"],
           stateContains: [{ table: "purchases", fields: { purchased_at: "2026-09-15", total_amount: "3800", currency: "MXN", payment_method: "transfer", notes: "sample lot", status: "draft" } }],
         },
       },
@@ -96,9 +98,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Delete the provider Café Sierra and everything connected to it.",
         expect: {
-          forbiddenTools: ["delete_record"], allowedTools: ["query_records"],
+          requiredTools: ["query_records", "delete_record"], allowedTools: ["query_records", "delete_record"],
           maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["confirm|approval|permanent"],
+          toolCallContains: [{ name: "delete_record", arguments: { resource: "provider", id: IDS.cafeSierra } }],
         },
       },
       {
@@ -106,7 +109,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["delete_record"], allowedTools: ["delete_record"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "delete_record", arguments: { resource: "provider", id: IDS.cafeSierra } }],
+          confirmationTools: ["delete_record"],
           responsePatterns: ["depend|purchase|cannot|refus"],
           stateContains: [{ table: "providers", fields: { name: "Café Sierra" } }],
         },
@@ -121,7 +124,8 @@ export const scenarios: EvalScenario[] = [
       prompt: "Traza el lote ‘Chiapas lavado’ desde su proveedor y compra hasta sus tuestes. Incluye importe de compra, peso recibido y nombres de los tuestes. No cambies nada.",
       expect: {
         requiredTools: ["query_records"], allowedTools: ["query_records"],
-        minToolCalls: 3, maxToolCalls: 6, maxApiCalls: 8, mutationCount: 0,
+        minToolCalls: 1, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
+        toolCallContains: [{ name: "query_records", arguments: { resource: "green_coffee_lot", id: IDS.greenLot, include: "traceability" } }],
         responsePatterns: ["Café Sierra", "11[,.]?400", "60(?:\\.0+)?\\s*kg", "Tueste prueba", "Tueste tarde"],
       },
     }],
@@ -147,9 +151,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Prepara un lote verde ligado a la compra confirmada de Café Sierra: nombre Lote Expo, origen OAXACA, variedad TYPICA, 25 kg recibidos, costo MXN 205.50 por kg y nota ‘  muestra de   expo  ’. Enséñame los campos antes de guardar.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["create_green_coffee_lot"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 4, maxApiCalls: 5, mutationCount: 0,
+          requiredTools: ["query_records", "create_green_coffee_lot"], allowedTools: ["query_records", "create_green_coffee_lot"],
+          minToolCalls: 2, maxToolCalls: 4, maxApiCalls: 4, mutationCount: 0,
           responsePatterns: ["Lote Expo", "25(?:\\.0+)?\\s*kg", "205\\.50|205[,.]5", "confirm"],
+          toolCallContains: [{ name: "create_green_coffee_lot", arguments: { purchase_id: IDS.confirmedPurchase, name: "Lote Expo", received_weight_kg: 25, unit_cost_per_kg: 205.5 } }],
         },
       },
       {
@@ -157,7 +162,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["create_green_coffee_lot"], allowedTools: ["create_green_coffee_lot"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "create_green_coffee_lot", arguments: { purchase_id: IDS.confirmedPurchase, name: "Lote Expo", received_weight_kg: 25, unit_cost_per_kg: 205.5 } }],
+          confirmationTools: ["create_green_coffee_lot"],
           stateContains: [{ table: "green_coffee_lots", fields: { purchase_id: IDS.confirmedPurchase, name: "Lote Expo", origin: "oaxaca", variety: "typica", received_weight_kg: "25", unit_cost_per_kg: "205.5", notes: "muestra de expo" } }],
         },
       },
@@ -171,9 +176,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Prepare a roast batch for ‘Chiapas lavado’: name Morning profile, roasted at 2026-09-16T09:30:00-06:00, 12 kg green input, 10.2 kg roasted output, 705 seconds, notes ‘  First   curve  ’. Show the exact draft first.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["create_roast_batch"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
+          requiredTools: ["query_records", "create_roast_batch"], allowedTools: ["query_records", "create_roast_batch"],
+          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["12(?:\\.0+)?\\s*kg", "10\\.2(?:0+)?\\s*kg", "705", "confirm"],
+          toolCallContains: [{ name: "create_roast_batch", arguments: { green_coffee_lot_id: IDS.greenLot, name: "Morning profile", green_input_kg: 12, roasted_output_kg: 10.2, duration_seconds: 705 } }],
         },
       },
       {
@@ -181,7 +187,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["create_roast_batch"], allowedTools: ["create_roast_batch"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "create_roast_batch", arguments: { green_coffee_lot_id: IDS.greenLot, name: "Morning profile", green_input_kg: 12, roasted_output_kg: 10.2, duration_seconds: 705 } }],
+          confirmationTools: ["create_roast_batch"],
           stateContains: [{ table: "roast_batches", fields: { green_coffee_lot_id: IDS.greenLot, name: "Morning profile", green_input_kg: "12", roasted_output_kg: "10.2", duration_seconds: 705, notes: "First curve", status: "draft" } }],
         },
       },
@@ -195,9 +201,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Prepara este cambio para Finca Norte: región ‘  HUEHUETENANGO  ’ y nota ‘  contacto   renovado  ’. No lo apliques todavía.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["update_record"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
+          requiredTools: ["query_records", "update_record"], allowedTools: ["query_records", "update_record"],
+          minToolCalls: 2, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["HUEHUETENANGO", "contacto", "confirm"],
+          toolCallContains: [{ name: "update_record", arguments: { resource: "provider", id: IDS.fincaNorte } }],
         },
       },
       {
@@ -205,7 +212,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["update_record"], allowedTools: ["update_record"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "update_record", arguments: { resource: "provider", id: IDS.fincaNorte } }],
+          confirmationTools: ["update_record"],
           stateContains: [{ table: "providers", fields: { id: IDS.fincaNorte, region: "huehuetenango", notes: "contacto renovado" } }],
         },
       },
@@ -219,9 +226,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Prepare a correction to ‘Tueste tarde’: roasted output is 6.8 kg and notes should be ‘output reweighed’. Do not apply it yet.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["update_record"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
+          requiredTools: ["query_records", "update_record"], allowedTools: ["query_records", "update_record"],
+          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["6\\.8(?:0+)?\\s*kg", "output reweighed", "confirm"],
+          toolCallContains: [{ name: "update_record", arguments: { resource: "roast_batch", id: IDS.draftRoast, fields: { roasted_output_kg: 6.8, notes: "output reweighed" } } }],
         },
       },
       {
@@ -229,7 +237,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["update_record"], allowedTools: ["update_record"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "update_record", arguments: { resource: "roast_batch", id: IDS.draftRoast, fields: { roasted_output_kg: 6.8, notes: "output reweighed" } } }],
+          confirmationTools: ["update_record"],
           stateContains: [{ table: "roast_batches", fields: { id: IDS.draftRoast, green_input_kg: "8.000", roasted_output_kg: "6.8", notes: "output reweighed", status: "draft" } }],
         },
       },
@@ -243,9 +251,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Quiero confirmar la compra en borrador de Café Sierra del 2026-09-14. Muéstramela y espera mi aprobación.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["set_record_status"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
+          requiredTools: ["query_records", "set_record_status"], allowedTools: ["query_records", "set_record_status"],
+          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["2026-09-14", "12[,.]?500", "confirm"],
+          toolCallContains: [{ name: "set_record_status", arguments: { resource: "purchase", id: IDS.draftPurchase, status: "confirmed" } }],
         },
       },
       {
@@ -253,7 +262,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["set_record_status"], allowedTools: ["set_record_status"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "set_record_status", arguments: { resource: "purchase", id: IDS.draftPurchase, status: "confirmed" } }],
+          confirmationTools: ["set_record_status"],
           stateContains: [{ table: "purchases", fields: { id: IDS.draftPurchase, status: "confirmed" } }],
         },
       },
@@ -267,9 +276,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Prepare to void the draft roast ‘Tueste tarde’. Show the target and wait; do not change it yet.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["set_record_status"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
+          requiredTools: ["query_records", "set_record_status"], allowedTools: ["query_records", "set_record_status"],
+          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["Tueste tarde", "void", "confirm"],
+          toolCallContains: [{ name: "set_record_status", arguments: { resource: "roast_batch", id: IDS.draftRoast, status: "void" } }],
         },
       },
       {
@@ -277,7 +287,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["set_record_status"], allowedTools: ["set_record_status"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "set_record_status", arguments: { resource: "roast_batch", id: IDS.draftRoast, status: "void" } }],
+          confirmationTools: ["set_record_status"],
           stateContains: [{ table: "roast_batches", fields: { id: IDS.draftRoast, status: "void" } }],
         },
       },
@@ -291,9 +301,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Prepara adjuntar el recibo {{UPLOAD_FIXTURE_PATH}} a la compra en borrador de Café Sierra del 2026-09-14. Identifica la compra y espera mi confirmación; todavía no subas nada.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["upload_purchase_document"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
+          requiredTools: ["query_records", "upload_purchase_document"], allowedTools: ["query_records", "upload_purchase_document"],
+          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["2026-09-14", "recibo|archivo", "confirm"],
+          toolCallContains: [{ name: "upload_purchase_document", arguments: { purchase_id: IDS.draftPurchase } }],
         },
       },
       {
@@ -301,7 +312,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["upload_purchase_document"], allowedTools: ["upload_purchase_document"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "upload_purchase_document", arguments: { purchase_id: IDS.draftPurchase } }],
+          confirmationTools: ["upload_purchase_document"],
           stateContains: [{ table: "purchases", fields: { id: IDS.draftPurchase, document_path: `purchases/${IDS.draftPurchase}/eval-receipt.png` } }],
         },
       },
@@ -315,9 +326,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Prepare to permanently delete Finca Norte. Identify the exact record and ask me before doing it.",
         expect: {
-          requiredTools: ["query_records"], forbiddenTools: ["delete_record"], allowedTools: ["query_records"],
-          minToolCalls: 1, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
+          requiredTools: ["query_records", "delete_record"], allowedTools: ["query_records", "delete_record"],
+          minToolCalls: 2, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["Finca Norte", "confirm|approval|permanent"],
+          toolCallContains: [{ name: "delete_record", arguments: { resource: "provider", id: IDS.fincaNorte } }],
         },
       },
       {
@@ -325,7 +337,7 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["delete_record"], allowedTools: ["delete_record"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          toolCallContains: [{ name: "delete_record", arguments: { resource: "provider", id: IDS.fincaNorte } }],
+          confirmationTools: ["delete_record"],
           stateAbsent: [{ table: "providers", fields: { id: IDS.fincaNorte } }],
           responsePatterns: ["delet"],
         },

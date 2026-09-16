@@ -44,11 +44,19 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
       const { limit, offset } = pagination(request.query);
       const rows = await store.list(
         "purchases",
-        { provider_id: request.query.provider_id, status: request.query.status },
+        {
+          provider_id: request.query.provider_id,
+          purchased_at: request.query.purchased_at,
+          status: request.query.status,
+        },
         limit,
         offset,
       );
-      return listEnvelope(rows, limit, offset);
+      return listEnvelope(rows, limit, offset, {
+        provider_id: request.query.provider_id,
+        purchased_at: request.query.purchased_at,
+        status: request.query.status,
+      });
     },
   );
 

@@ -21,8 +21,17 @@ class MemoryStore implements CafeStore {
     roast_batches: [],
   };
 
-  async list(table: TableName): Promise<Row[]> {
-    return this.rows[table];
+  async list(
+    table: TableName,
+    filters: Record<string, unknown> = {},
+    limit = 50,
+    offset = 0,
+    textSearch?: { field: "name"; query: string },
+  ): Promise<Row[]> {
+    return this.rows[table]
+      .filter((row) => Object.entries(filters).every(([key, value]) => value === undefined || row[key] === value))
+      .filter((row) => !textSearch || String(row[textSearch.field] ?? "").toLocaleLowerCase().includes(textSearch.query.toLocaleLowerCase()))
+      .slice(offset, offset + limit);
   }
   async get(table: TableName, id: string): Promise<Row | null> {
     return this.rows[table].find((row) => row.id === id) ?? null;
@@ -123,5 +132,41 @@ describe("Cafe API", () => {
     const response = await app.inject({ method: "GET", url: "/openapi.json" });
     expect(response.statusCode).toBe(200);
     expect(response.json().info.title).toBe("Cafe OS API");
+  });
+
+  it("searches display names without resolving ambiguous matches", async () => {
+    const store = new MemoryStore();
+    const cafeSierraId = crypto.randomUUID();
+    store.rows.providers.push(
+      { id: cafeSierraId, name: "Café Sierra" },
+      { id: crypto.randomUUID(), name: "Sierra Verde" },
+      { id: crypto.randomUUID(), name: "Costa Sur" },
+    );
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/providers?name=Sierra",
+      headers: { authorization: "Bearer test-api-token" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toHaveLength(2);
+    expect(response.json().meta).toMatchObject({
+      match_count: 2,
+      exact_match_count: 0,
+      exact_match_ids: [],
+      applied_filters: { name: "Sierra" },
+    });
+    const exact = await app.inject({
+      method: "GET",
+      url: "/v1/providers?name=Caf%C3%A9%20Sierra",
+      headers: { authorization: "Bearer test-api-token" },
+    });
+    expect(exact.statusCode).toBe(200);
+    expect(exact.json().meta).toMatchObject({
+      match_count: 1,
+      exact_match_count: 1,
+      exact_match_ids: [cafeSierraId],
+    });
   });
 });

@@ -1,0 +1,14 @@
+name: cafe-tool-router
+kind: standalone
+version: 0.1.0
+description: Route each Cafe OS request to a bounded dynamic Cafe-only tool subset and enforce per-turn call policy.
+author: Cafe OS
+capabilities:
+  - tools.override
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+  - post_api_request
+provides_middleware:
+  - llm_request
+  - tool_execution

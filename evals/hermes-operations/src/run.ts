@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { gradeTurn } from "./grade.ts";
 import { MockCafeApi } from "./mock-api.ts";
 import { scenarios } from "./scenarios.ts";
-import type { EvalRun, EvalScenario, ReasoningEffort, ScenarioResult, ToolCall, TurnResult, UsageReport } from "./types.ts";
+import type { EvalRun, EvalScenario, HarnessEvent, ReasoningEffort, ScenarioResult, ToolCall, TurnResult, UsageReport } from "./types.ts";
 
 interface Options {
   profile: string;
@@ -72,6 +72,20 @@ function sanitizeDiagnostics(value: string): string {
     .replace(/(token|secret|api[_-]?key)(\s*[=:]\s*)\S+/gi, "$1$2[REDACTED]")
     .replace(/(openrouter\.ai\/workspaces\/[^/]+\/keys\/)[A-Za-z0-9_-]+/gi, "$1[REDACTED]")
     .trim();
+}
+
+function harnessEvents(value: string): HarnessEvent[] {
+  return value.split("\n").flatMap((line) => {
+    const marker = "CAFE_HARNESS_EVENT ";
+    const offset = line.indexOf(marker);
+    if (offset < 0) return [];
+    try {
+      const parsed = JSON.parse(line.slice(offset + marker.length)) as HarnessEvent;
+      return parsed && typeof parsed.event === "string" ? [parsed] : [];
+    } catch {
+      return [];
+    }
+  });
 }
 
 function inferFailure(processResult: { stdout: string; stderr: string; code: number }): string {
@@ -143,7 +157,7 @@ function renderMarkdown(run: EvalRun): string {
     const cost = turns.reduce((sum, turn) => sum + Number(turn.usage.estimated_cost_usd ?? 0), 0);
     lines.push(`| ${scenario.id} | ${scenario.locale} | ${scenario.pass ? "yes" : "NO"} | ${hops} | ${tools} | ${envelopes} | ${input} | ${cacheRead} | ${reasoning} | ${output} | ${cost.toFixed(6)} |`);
   }
-  lines.push("", `Passed: ${run.summary.passed}/${run.scenarios.length}; hops: ${run.summary.totalApiCalls}; tools: ${run.summary.totalToolCalls}; envelopes: ${run.summary.totalRawToolCalls}; input: ${run.summary.inputTokens}; cache read: ${run.summary.cacheReadTokens}; reasoning: ${run.summary.reasoningTokens}; output: ${run.summary.outputTokens}; total tokens: ${run.summary.totalTokens}; estimated cost: $${run.summary.estimatedCostUsd.toFixed(6)}`, "", "## Failures", "");
+  lines.push("", `Passed: ${run.summary.passed}/${run.scenarios.length}; main hops: ${run.summary.totalApiCalls}; router calls: ${run.summary.routerCalls}; tools: ${run.summary.totalToolCalls}; envelopes: ${run.summary.totalRawToolCalls}; main tokens: ${run.summary.totalTokens}; router tokens: ${run.summary.routerInputTokens + run.summary.routerOutputTokens}; combined tokens: ${run.summary.combinedTokens}; main cost: $${run.summary.estimatedCostUsd.toFixed(6)}; router cost: $${run.summary.routerCostUsd.toFixed(6)}; combined cost: $${run.summary.combinedCostUsd.toFixed(6)}`, "", "## Failures", "");
   let failures = 0;
   for (const scenario of run.scenarios) for (const [index, turn] of scenario.turns.entries()) {
     const failed = turn.assertions.filter((item) => !item.pass);
@@ -154,7 +168,7 @@ function renderMarkdown(run: EvalRun): string {
   if (!failures) lines.push("None.", "");
   lines.push("## Turn details", "");
   for (const scenario of run.scenarios) for (const [index, turn] of scenario.turns.entries()) {
-    lines.push("### " + scenario.id + ", turn " + (index + 1), "", "**Prompt**", "", turn.prompt, "", "**Response**", "", turn.response || "_(empty)_", "", "**Metrics**", "", "- Session: `" + turn.sessionId + "`", "- Exit code: " + turn.exitCode, "- Hops: " + Number(turn.usage.api_calls ?? 0), "- Input tokens: " + Number(turn.usage.input_tokens ?? 0), "- Cache-read tokens: " + Number(turn.usage.cache_read_tokens ?? 0), "- Reasoning tokens: " + Number(turn.usage.reasoning_tokens ?? 0), "- Output tokens: " + Number(turn.usage.output_tokens ?? 0), "- Total tokens: " + Number(turn.usage.total_tokens ?? 0), "- Estimated cost: $" + Number(turn.usage.estimated_cost_usd ?? 0).toFixed(6), "- Duration: " + turn.durationMs + " ms", "", "**Raw Hermes tool envelopes**", "", "```json", JSON.stringify(turn.rawToolCalls, null, 2), "```", "", "**Effective Cafe OS tool calls**", "", "```json", JSON.stringify(turn.toolCalls, null, 2), "```", "", "**REST mutations**", "", "```json", JSON.stringify(turn.operations, null, 2), "```", "", "**Assertions**", "", ...turn.assertions.map((item) => "- " + (item.pass ? "PASS" : "FAIL") + ": " + item.message), "");
+    lines.push("### " + scenario.id + ", turn " + (index + 1), "", "**Prompt**", "", turn.prompt, "", "**Response**", "", turn.response || "_(empty)_", "", "**Metrics**", "", "- Session: `" + turn.sessionId + "`", "- Exit code: " + turn.exitCode, "- Hops: " + Number(turn.usage.api_calls ?? 0), "- Input tokens: " + Number(turn.usage.input_tokens ?? 0), "- Cache-read tokens: " + Number(turn.usage.cache_read_tokens ?? 0), "- Reasoning tokens: " + Number(turn.usage.reasoning_tokens ?? 0), "- Output tokens: " + Number(turn.usage.output_tokens ?? 0), "- Total tokens: " + Number(turn.usage.total_tokens ?? 0), "- Estimated cost: $" + Number(turn.usage.estimated_cost_usd ?? 0).toFixed(6), "- Duration: " + turn.durationMs + " ms", "", "**Sanitized harness trajectory**", "", "```json", JSON.stringify(turn.harnessEvents, null, 2), "```", "", "**Raw Hermes tool envelopes**", "", "```json", JSON.stringify(turn.rawToolCalls, null, 2), "```", "", "**Effective Cafe OS tool calls**", "", "```json", JSON.stringify(turn.toolCalls, null, 2), "```", "", "**REST mutations**", "", "```json", JSON.stringify(turn.operations, null, 2), "```", "", "**Assertions**", "", ...turn.assertions.map((item) => "- " + (item.pass ? "PASS" : "FAIL") + ": " + item.message), "");
     if (turn.diagnostics) lines.push("**Sanitized diagnostics**", "", "```text", turn.diagnostics, "```", "");
   }
   return lines.join("\n");
@@ -169,6 +183,7 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
     const beforeOperations = api.operations.length;
     const usagePath = path.join(tempDir, `${scenario.id}-${turnIndex}-usage.json`);
     const exportPath = path.join(tempDir, `${scenario.id}-${turnIndex}-session.jsonl`);
+    const harnessEventPath = path.join(tempDir, `${scenario.id}-${turnIndex}-harness.jsonl`);
     const args = [
       "-p", options.profile, "-z", prompt,
       "--usage-file", usagePath,
@@ -187,6 +202,8 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
         CAFE_EVAL_API_URL: apiUrl,
         CAFE_EVAL_API_TOKEN: api.token,
         CAFE_EVAL_UPLOAD_ROOT: tempDir,
+        CAFE_TOOL_ROUTER_CLI: path.join(projectRoot, "services/cafe-mcp/dist/tool-router-cli.js"),
+        CAFE_HARNESS_EVENT_FILE: harnessEventPath,
       },
       timeoutMs: 120_000,
     });
@@ -207,7 +224,17 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
     const toolCalls = trajectory.effective;
     const operations = api.operations.slice(beforeOperations);
     const response = sanitizeDiagnostics(processResult.stdout.trim());
-    const assertions = gradeTurn(turn.expect, response, toolCalls, operations, usage, api.snapshot());
+    let fileHarnessEvents: HarnessEvent[] = [];
+    try {
+      fileHarnessEvents = (await fs.readFile(harnessEventPath, "utf8")).split("\n").flatMap((line) => {
+        if (!line) return [];
+        try { return [JSON.parse(line) as HarnessEvent]; } catch { return []; }
+      });
+    } catch {
+      // The middleware may not have reached its first event on a startup failure.
+    }
+    const safeHarnessEvents = fileHarnessEvents.length ? fileHarnessEvents : harnessEvents(processResult.stderr);
+    const assertions = gradeTurn(turn.expect, response, toolCalls, operations, usage, api.snapshot(), safeHarnessEvents, scenario.locale, rawToolCalls);
     const turnResult: TurnResult = {
       prompt,
       response,
@@ -216,6 +243,7 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
       sessionId: sessionId ?? "",
       exitCode: processResult.code,
       diagnostics: sanitizeDiagnostics(processResult.stderr),
+      harnessEvents: safeHarnessEvents,
       operations,
       usage,
       durationMs: Date.now() - started,
@@ -223,16 +251,26 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
       pass: assertions.every((item) => item.pass),
     };
     turns.push(turnResult);
+    for (const event of safeHarnessEvents) {
+      await fs.appendFile(logPath, JSON.stringify({ ...event, run_scenario: scenario.id, run_turn: turnIndex + 1 }) + "\n");
+    }
     await fs.appendFile(logPath, JSON.stringify({ event: "turn", scenario: scenario.id, turn: turnIndex + 1, ...turnResult }) + "\n");
     const metric = "  turn " + (turnIndex + 1) + ": " + (turnResult.pass ? "PASS" : "FAIL") + "; hops=" + Number(usage.api_calls ?? 0) + "; tools=" + toolCalls.length + "; envelopes=" + rawToolCalls.length + "; tokens=" + Number(usage.total_tokens ?? 0) + "; cost=$" + Number(usage.estimated_cost_usd ?? 0).toFixed(6) + "; duration=" + turnResult.durationMs + "ms\n";
     process.stderr.write(metric);
-    if (options.verbose) process.stderr.write(JSON.stringify({ prompt: turnResult.prompt, response: turnResult.response, rawToolCalls, toolCalls, operations, assertions, diagnostics: turnResult.diagnostics }, null, 2) + "\n");
+    if (options.verbose) process.stderr.write(JSON.stringify({ prompt: turnResult.prompt, response: turnResult.response, rawToolCalls, toolCalls, operations, harnessEvents: safeHarnessEvents, assertions, diagnostics: turnResult.diagnostics }, null, 2) + "\n");
   }
   return { id: scenario.id, locale: scenario.locale, description: scenario.description, turns, pass: turns.every((turn) => turn.pass) };
 }
 
 function summarize(run: Omit<EvalRun, "summary">): EvalRun["summary"] {
   const turns = run.scenarios.flatMap((scenario) => scenario.turns);
+  const routerEvents = turns.flatMap((turn) => turn.harnessEvents)
+    .filter((event) => event.event === "router" && event.model !== "pending-confirmation-bypass");
+  const mainTokens = turns.reduce((sum, turn) => sum + Number(turn.usage.total_tokens ?? 0), 0);
+  const mainCost = turns.reduce((sum, turn) => sum + Number(turn.usage.estimated_cost_usd ?? 0), 0);
+  const routerInput = routerEvents.reduce((sum, event) => sum + Number(event.input_tokens ?? 0), 0);
+  const routerOutput = routerEvents.reduce((sum, event) => sum + Number(event.output_tokens ?? 0), 0);
+  const routerCost = routerEvents.reduce((sum, event) => sum + Number(event.cost_usd ?? 0), 0);
   return {
     passed: run.scenarios.filter((scenario) => scenario.pass).length,
     failed: run.scenarios.filter((scenario) => !scenario.pass).length,
@@ -244,8 +282,15 @@ function summarize(run: Omit<EvalRun, "summary">): EvalRun["summary"] {
     cacheReadTokens: turns.reduce((sum, turn) => sum + Number(turn.usage.cache_read_tokens ?? 0), 0),
     cacheWriteTokens: turns.reduce((sum, turn) => sum + Number(turn.usage.cache_write_tokens ?? 0), 0),
     reasoningTokens: turns.reduce((sum, turn) => sum + Number(turn.usage.reasoning_tokens ?? 0), 0),
-    totalTokens: turns.reduce((sum, turn) => sum + Number(turn.usage.total_tokens ?? 0), 0),
-    estimatedCostUsd: turns.reduce((sum, turn) => sum + Number(turn.usage.estimated_cost_usd ?? 0), 0),
+    totalTokens: mainTokens,
+    estimatedCostUsd: mainCost,
+    routerCalls: routerEvents.length,
+    routerInputTokens: routerInput,
+    routerOutputTokens: routerOutput,
+    routerCostUsd: routerCost,
+    routerDurationMs: routerEvents.reduce((sum, event) => sum + Number(event.duration_ms ?? 0), 0),
+    combinedTokens: mainTokens + routerInput + routerOutput,
+    combinedCostUsd: mainCost + routerCost,
   };
 }
 
@@ -271,9 +316,16 @@ async function main(): Promise<void> {
   await fs.writeFile(logPath, JSON.stringify({ event: "run_started", runId, model: options.model, provider: options.provider, reasoning: options.reasoning, scenarios: selected.map((scenario) => scenario.id) }) + "\n");
   try {
     const scenarioResults: ScenarioResult[] = [];
+    const scenarioSessions = new Set<string>();
     for (const scenario of selected) {
       process.stderr.write(`eval ${scenario.id} (${options.reasoning})...\n`);
-      scenarioResults.push(await runScenario(scenario, options, projectRoot, api, apiUrl, tempDir, logPath));
+      const result = await runScenario(scenario, options, projectRoot, api, apiUrl, tempDir, logPath);
+      const scenarioSession = result.turns[0]?.sessionId;
+      if (scenarioSession && scenarioSessions.has(scenarioSession)) {
+        throw new Error(`Scenario isolation failed: session ${scenarioSession} was reused.`);
+      }
+      if (scenarioSession) scenarioSessions.add(scenarioSession);
+      scenarioResults.push(result);
     }
     const base = { runId, startedAt: new Date().toISOString(), model: options.model, provider: options.provider, profile: options.profile, reasoning: options.reasoning, scenarios: scenarioResults };
     const run: EvalRun = { ...base, summary: summarize(base) };

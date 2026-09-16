@@ -17,7 +17,7 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - The gateway runs as an enabled per-user systemd service and starts automatically at boot.
 - A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema.
 - The TypeScript Cafe API is running on `127.0.0.1:8100`.
-- A nine-tool TypeScript MCP adapter and guarded Hermes operations skill are implemented but are not connected to the public Hermes toolset.
+- A ten-tool TypeScript MCP adapter, DeepSeek Flash intent router, exact pending-confirmation store, and guarded Hermes operations skill are implemented. General-purpose tools are disabled in the trusted operations profile.
 
 ## Finish setup
 

@@ -25,6 +25,14 @@ export const PaginationQuery = Type.Object(
   options,
 );
 
+const paginationFields = {
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 50 })),
+  offset: Type.Optional(Type.Integer({ minimum: 0, default: 0 })),
+};
+const nameField = Type.Optional(Type.String({ minLength: 1, maxLength: 160 }));
+
+export const ProviderListQuery = Type.Object({ ...paginationFields, name: nameField }, options);
+
 export const ProviderCreateSchema = Type.Object(
   {
     name: Type.String(),
@@ -129,43 +137,42 @@ export const RoastBatchPatchSchema = Type.Object(
   patchOptions,
 );
 
-export const PurchaseListQuery = Type.Intersect([
-  PaginationQuery,
-  Type.Object(
-    {
-      provider_id: Type.Optional(Uuid),
-      status: Type.Optional(Type.Union([
-        Type.Literal("draft"),
-        Type.Literal("confirmed"),
-        Type.Literal("void"),
-      ])),
-    },
-    options,
-  ),
-]);
+export const PurchaseListQuery = Type.Object(
+  {
+    ...paginationFields,
+    provider_id: Type.Optional(Uuid),
+    purchased_at: Type.Optional(DateString),
+    status: Type.Optional(Type.Union([
+      Type.Literal("draft"),
+      Type.Literal("confirmed"),
+      Type.Literal("void"),
+    ])),
+  },
+  options,
+);
 
-export const GreenCoffeeListQuery = Type.Intersect([
-  PaginationQuery,
-  Type.Object({ purchase_id: Type.Optional(Uuid) }, options),
-]);
+export const GreenCoffeeListQuery = Type.Object(
+  { ...paginationFields, name: nameField, purchase_id: Type.Optional(Uuid) },
+  options,
+);
 
-export const RoastBatchListQuery = Type.Intersect([
-  PaginationQuery,
-  Type.Object(
-    {
-      green_coffee_lot_id: Type.Optional(Uuid),
-      status: Type.Optional(Type.Union([
-        Type.Literal("draft"),
-        Type.Literal("confirmed"),
-        Type.Literal("void"),
-      ])),
-    },
-    options,
-  ),
-]);
+export const RoastBatchListQuery = Type.Object(
+  {
+    ...paginationFields,
+    name: nameField,
+    green_coffee_lot_id: Type.Optional(Uuid),
+    status: Type.Optional(Type.Union([
+      Type.Literal("draft"),
+      Type.Literal("confirmed"),
+      Type.Literal("void"),
+    ])),
+  },
+  options,
+);
 
 export type IdParamsType = Static<typeof IdParams>;
 export type PaginationQueryType = Static<typeof PaginationQuery>;
+export type ProviderListQueryType = Static<typeof ProviderListQuery>;
 export type ProviderCreate = Static<typeof ProviderCreateSchema>;
 export type ProviderPatch = Static<typeof ProviderPatchSchema>;
 export type PurchaseCreate = Static<typeof PurchaseCreateSchema>;

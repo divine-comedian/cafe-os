@@ -1,9 +1,15 @@
 # Ticket: harden the Hermes Cafe OS operations harness
 
-Status: ready for implementation  
+Status: implemented; full-suite acceptance benchmark pending
 Target branch: `eval/model-tuning`  
 Baseline: `2026-09-16T15-06-29-090Z-medium`  
 Reference implementation inspected: `hive-mind@c4440128ba08`
+
+## Verification status
+
+All local unit tests, schema snapshots, TypeScript builds/type checks, plugin validation, and shell/Python syntax checks pass. Focused live OpenRouter runs pass the corrected read, traceability, missing-data, dependency-delete, upload, ambiguity, and confirmation paths within their operational hop caps. Representative passing run IDs include `2026-09-16T17-44-58-608Z-medium` (traceability), `2026-09-16T17-52-11-682Z-medium` (upload), and `2026-09-16T17-59-52-099Z-medium` (guarded delete).
+
+The final uninterrupted 18-scenario release gate remains pending because the configured OpenRouter key reached its weekly allowance during the full run and returned HTTP 402 with zero Qwen tokens for the remaining turns. Those turns are infrastructure failures, not accepted test results, and no incomplete run is promoted into `baselines/`. The per-hop output reservation is now bounded at 4,096 while the aggregate per-turn budget remains 8,192, avoiding an unnecessarily large credit reservation on each hop. Rerun the full verification command after the key allowance resets or is increased.
 
 ## Problem
 
@@ -235,7 +241,7 @@ The global 20-hop limit stays as an emergency ceiling. Add narrower operational 
 | Confirmed single write | execute stored write, answer | 2 hops |
 | Ambiguous lookup | read candidates, clarify | 2 hops |
 
-Use a shared aggregate completion budget across all hops in one user turn. Start with 8,192 total completion tokens and a 1,024-token safe final-response floor. These are tuning values, not permanent product constants. Record when either limit ends a turn.
+Use a shared aggregate completion budget across all hops in one user turn. Start with 8,192 total completion tokens, a 4,096-token per-hop reservation ceiling, and a 1,024-token safe final-response floor. These are tuning values, not permanent product constants. Record when either limit ends a turn.
 
 Limit tool results as well:
 

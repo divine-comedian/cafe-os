@@ -9,12 +9,18 @@ export type TableName =
 
 export type Row = Record<string, unknown>;
 
+export interface TextSearch {
+  field: "name";
+  query: string;
+}
+
 export interface CafeStore {
   list(
     table: TableName,
     filters?: Record<string, unknown>,
     limit?: number,
     offset?: number,
+    textSearch?: TextSearch,
   ): Promise<Row[]>;
   get(table: TableName, id: string): Promise<Row | null>;
   create(table: TableName, data: Row): Promise<Row>;
@@ -56,6 +62,7 @@ export class SupabaseStore implements CafeStore {
     filters: Record<string, unknown> = {},
     limit = 50,
     offset = 0,
+    textSearch?: TextSearch,
   ): Promise<Row[]> {
     let query = this.client
       .from(table)
@@ -64,6 +71,10 @@ export class SupabaseStore implements CafeStore {
       .range(offset, offset + limit - 1);
     for (const [field, value] of Object.entries(filters)) {
       if (value !== undefined && value !== null) query = query.eq(field, value);
+    }
+    if (textSearch) {
+      const escaped = textSearch.query.replace(/[\\%_]/g, (value) => `\\${value}`);
+      query = query.ilike(textSearch.field, `%${escaped}%`);
     }
     const { data, error } = await query;
     if (error) throw mapError(error);

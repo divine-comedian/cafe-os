@@ -125,8 +125,30 @@ export class MockCafeApi {
       const offset = Number(filters.offset ?? 0);
       delete filters.limit;
       delete filters.offset;
-      const rows = this.state[table].filter((row) => Object.entries(filters).every(([key, value]) => String(row[key]) === value));
-      return json(response, 200, { data: rows.slice(offset, offset + limit), pagination: { limit, offset, count: rows.length } });
+      const name = filters.name;
+      delete filters.name;
+      const rows = this.state[table].filter((row) =>
+        Object.entries(filters).every(([key, value]) => String(row[key]) === value)
+        && (!name || String(row.name ?? "").toLocaleLowerCase().includes(name.toLocaleLowerCase())),
+      );
+      const requestedName = name?.trim().toLocaleLowerCase();
+      const exactMatches = requestedName
+        ? rows.filter((row) => typeof row.name === "string" && row.name.trim().toLocaleLowerCase() === requestedName)
+        : [];
+      return json(response, 200, {
+        data: rows.slice(offset, offset + limit),
+        meta: {
+          limit,
+          offset,
+          count: rows.length,
+          match_count: rows.length,
+          ...(requestedName ? {
+            exact_match_count: exactMatches.length,
+            exact_match_ids: exactMatches.map((row) => row.id),
+          } : {}),
+          applied_filters: { ...filters, ...(name ? { name } : {}) },
+        },
+      });
     }
 
     const row = id ? this.state[table].find((item) => item.id === id) : undefined;

@@ -45,8 +45,12 @@ export const greenCoffeeRoutes: FastifyPluginAsyncTypebox<GreenCoffeeRoutesOptio
         { purchase_id: request.query.purchase_id },
         limit,
         offset,
+        request.query.name ? { field: "name", query: request.query.name.trim() } : undefined,
       );
-      return listEnvelope(rows, limit, offset);
+      return listEnvelope(rows, limit, offset, {
+        purchase_id: request.query.purchase_id,
+        name: request.query.name?.trim(),
+      });
     },
   );
 

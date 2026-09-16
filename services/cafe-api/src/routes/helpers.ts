@@ -16,8 +16,36 @@ export function pagination(query: { limit?: number; offset?: number }) {
   return { limit: query.limit ?? 50, offset: query.offset ?? 0 };
 }
 
-export function listEnvelope(data: Row[], limit: number, offset: number) {
-  return { data, meta: { limit, offset, count: data.length } };
+export function listEnvelope(
+  data: Row[],
+  limit: number,
+  offset: number,
+  appliedFilters: Record<string, unknown> = {},
+) {
+  const requestedName = typeof appliedFilters.name === "string"
+    ? appliedFilters.name.trim().toLocaleLowerCase()
+    : null;
+  const exactMatches = requestedName
+    ? data.filter((row) => typeof row.name === "string" && row.name.trim().toLocaleLowerCase() === requestedName)
+    : [];
+  return {
+    data,
+    meta: {
+      limit,
+      offset,
+      count: data.length,
+      match_count: data.length,
+      ...(requestedName ? {
+        exact_match_count: exactMatches.length,
+        exact_match_ids: exactMatches
+          .map((row) => row.id)
+          .filter((id): id is string => typeof id === "string"),
+      } : {}),
+      applied_filters: Object.fromEntries(
+        Object.entries(appliedFilters).filter(([, value]) => value !== undefined),
+      ),
+    },
+  };
 }
 
 export function recordEnvelope(data: unknown) {

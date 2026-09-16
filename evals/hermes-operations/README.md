@@ -2,7 +2,7 @@
 
 This suite measures how the real Hermes agent handles Cafe OS semantics in Mexican Spanish and English. It launches a stateful mock REST API, exposes the production TypeScript MCP adapter through an isolated Hermes profile, and never touches Supabase.
 
-The catalog contains 18 scenarios—exactly nine `es-MX` and nine English—and 29 conversational turns. It covers reads, calculations, traceability, ambiguity, missing required data, all four create flows, generic patching, purchase and roast status transitions, guarded and successful deletion, and purchase-document upload. Every one of the nine Cafe OS MCP tools has at least one positive-path assertion.
+The catalog contains 18 scenarios—exactly nine `es-MX` and nine English—and 29 conversational turns. It covers reads, calculations, traceability, ambiguity, missing required data, all four create flows, generic patching, purchase and roast status transitions, guarded and successful deletion, purchase-document upload, dynamic discovery, and stored confirmation. The reviewed ten-tool Cafe catalog has a normalized schema snapshot.
 
 For every turn it records:
 
@@ -10,6 +10,8 @@ For every turn it records:
 - REST mutations observed by the mock API;
 - model/API hops (`api_calls`), input/cache-read/cache-write/output/reasoning tokens, duration, and estimated cost;
 - final response and deterministic assertions against tool, state, and language expectations.
+- sanitized router, model-hop, tool-start/end, budget, and terminal events without arguments or record contents;
+- DeepSeek router tokens, duration, selected IDs, confidence, fallback reason, and cost separately from Qwen, plus combined totals.
 
 Tool arguments can be checked as partial nested objects, while state checks can assert either presence or absence. This catches wrong IDs, fields, and targets even when the final prose sounds correct.
 
@@ -21,8 +23,8 @@ npm --prefix services/cafe-mcp run build
 npm --prefix evals/hermes-operations install
 ```
 
-The `cafe-eval` profile clones model credentials and non-channel configuration from the active profile. Telegram and Discord remain disabled. Its Cafe API URL, token, and temporary upload root are provided only by the runner process and point to isolated fixtures. The upload case creates a disposable receipt file under the run's temporary directory and removes it afterward.
-Hermes 0.21.3 intentionally ignores user-configured main-agent output caps, so setup installs the versioned `config/hermes/plugins/model-providers/openrouter` policy to enforce the ceiling on the actual OpenRouter wire request. The setup uses medium reasoning and caps total model output at 16,384 tokens. OpenRouter maps medium effort to roughly 8,192 reasoning tokens for Qwen3.8 Flash. Hermes permits one tool-free wrap-up call after its iteration budget is exhausted, so the profile uses 19 iterations for a hard ceiling of 20 model hops. It also applies an 80% completion checkpoint and a 90-second wall-clock budget.
+The `cafe-eval` profile clones model credentials and non-channel configuration from the active profile. Telegram and Discord remain disabled. Hermes native tool search and all general-purpose toolsets are disabled. The profile enables a reviewed middleware capability that filters each Qwen request to at most five router-selected Cafe tools plus `discover_tools`; failures expose discovery only. Its Cafe API URL, token, and temporary upload root are provided only by the runner process and point to isolated fixtures. The upload case creates a disposable receipt file under the run's temporary directory and removes it afterward.
+Hermes 0.21.3 intentionally ignores user-configured main-agent output caps, so setup installs the versioned `config/hermes/plugins/model-providers/openrouter` policy to enforce the ceiling on the actual OpenRouter wire request. The setup uses medium reasoning and keeps the configured emergency output ceiling at 16,384 tokens. The Cafe harness additionally enforces an 8,192-token aggregate completion budget per user turn, with at most 4,096 reserved by any one model hop; this avoids oversized billing reservations while preserving multi-hop reasoning headroom. Hermes permits one tool-free wrap-up call after its iteration budget is exhausted, so the profile uses 19 iterations for a hard ceiling of 20 model hops. It also applies an 80% completion checkpoint and a 90-second wall-clock budget.
 
 ## Run
 

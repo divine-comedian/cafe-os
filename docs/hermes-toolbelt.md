@@ -4,14 +4,17 @@ Cafe OS exposes a small TypeScript MCP server at `services/cafe-mcp`. It transla
 
 ## Tool surface
 
-The server exposes nine tools:
+The server exposes ten Cafe-only tools:
 
-- `query_records` combines exact lookup and filtered listing.
+- `discover_tools` searches the dynamic Cafe capability catalog without reading business data.
+- `query_records` combines exact lookup, normalized name search, explicit match metadata, and bounded traceability expansion. Purchase reads can resolve `provider_name` together with date/status in one model-facing call.
 - Four resource-specific create tools keep required fields obvious.
 - `update_record` is the single typed patch tool for every resource.
 - `set_record_status` confirms or voids purchases and roast batches.
 - `delete_record` relies on API dependency guards.
 - `upload_purchase_document` accepts only regular files beneath approved roots.
+
+Every mutation tool is two-stage without adding separate prepare/confirm tools. A full validated call persists an exact pending proposal but does not mutate business data. After the operator approves its canonical fields, the same tool accepts only the opaque `confirmation_id`, atomically claims the stored payload, and executes it once. Completed, claimed, expired, mismatched, or cross-context proposals fail closed.
 
 Hermes registers these as `mcp__cafe_os__<tool>`. The accompanying project skill is `.hermes/skills/cafe-os-operations/SKILL.md`.
 
@@ -31,6 +34,13 @@ npm run build
 - `CAFE_API_URL` defaults to `http://127.0.0.1:8100`.
 - `CAFE_MCP_REQUEST_TIMEOUT_MS` defaults to `15000`.
 - `CAFE_MCP_UPLOAD_ROOTS` is a colon-separated allowlist. It defaults to the active Hermes cache directory, where inbound Telegram and Discord attachments are stored.
+- `CAFE_MCP_STATE_DIR` stores permission-restricted pending-operation envelopes. Set it to a persistent directory in the Hermes profile.
+- `CAFE_MCP_CONTEXT_ID` binds pending operations to the trusted operator profile; Hermes additionally binds confirmation IDs to the active session transcript.
+- `CAFE_MCP_PENDING_TTL_MS` defaults to 15 minutes.
+- `CAFE_TOOL_ROUTER_MODEL` defaults to `deepseek/deepseek-v4.1-flash`; router reasoning is disabled and its output is capped at 256 tokens.
+- `CAFE_TOOL_ROUTER_TIMEOUT_MS` defaults to 8 seconds; the host subprocess allows 10 seconds so the TypeScript router can return its typed fallback cleanly.
+
+The Hermes boundary limits the active catalog to five routed tools plus discovery, allows at most one discovery call, caps each tool result at 24,000 serialized characters and aggregate results at 48,000 characters per turn, reserves at most 4,096 completion tokens per model hop, and enforces an 8,192-token aggregate turn budget.
 
 The upload adapter resolves symlinks before checking the allowlist. It refuses directories and paths outside the configured roots, preventing an agent-supplied path from turning into arbitrary host-file access.
 
@@ -48,6 +58,8 @@ mcp_servers:
       CAFE_API_URL: "http://127.0.0.1:8100"
       CAFE_API_TOKEN: "${CAFE_API_TOKEN}"
       CAFE_MCP_UPLOAD_ROOTS: "${userHome}/.hermes/cache"
+      CAFE_MCP_STATE_DIR: "${userHome}/.hermes/state/cafe-mcp"
+      CAFE_MCP_CONTEXT_ID: "cafe-operations"
     trust: untrusted
     tools:
       resources: false
@@ -70,4 +82,4 @@ hermes skills trust
 
 ## Evaluation
 
-Use the isolated bilingual suite in `evals/hermes-operations`; it runs the full nine-tool surface against a mock API and records exact tool trajectories, model hops, tokens, and cost. See that directory’s README.
+Use the isolated bilingual suite in `evals/hermes-operations`; it runs the full dynamic catalog against a mock API and records routed subsets, sanitized trajectories, exact tool calls, main/router hops, tokens, and cost. See that directory’s README.

@@ -2,8 +2,8 @@ import { FastifyPluginAsyncTypebox } from "@fastify/type-provider-typebox";
 import {
   IdParams,
   IdParamsType,
-  PaginationQuery,
-  PaginationQueryType,
+  ProviderListQuery,
+  ProviderListQueryType,
   ProviderCreate,
   ProviderCreateSchema,
   ProviderPatch,
@@ -26,12 +26,18 @@ export const providerRoutes: FastifyPluginAsyncTypebox<ProviderRoutesOptions> = 
   app,
   { store },
 ) => {
-  app.get<{ Querystring: PaginationQueryType }>(
+  app.get<{ Querystring: ProviderListQueryType }>(
     "/providers",
-    { schema: { tags: ["Providers"], querystring: PaginationQuery } },
+    { schema: { tags: ["Providers"], querystring: ProviderListQuery } },
     async (request) => {
       const { limit, offset } = pagination(request.query);
-      return listEnvelope(await store.list("providers", {}, limit, offset), limit, offset);
+      const name = request.query.name?.trim();
+      return listEnvelope(
+        await store.list("providers", {}, limit, offset, name ? { field: "name", query: name } : undefined),
+        limit,
+        offset,
+        { name },
+      );
     },
   );
 

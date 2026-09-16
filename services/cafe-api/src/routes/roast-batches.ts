@@ -47,8 +47,13 @@ export const roastBatchRoutes: FastifyPluginAsyncTypebox<RoastBatchRoutesOptions
         },
         limit,
         offset,
+        request.query.name ? { field: "name", query: request.query.name.trim() } : undefined,
       );
-      return listEnvelope(rows, limit, offset);
+      return listEnvelope(rows, limit, offset, {
+        green_coffee_lot_id: request.query.green_coffee_lot_id,
+        status: request.query.status,
+        name: request.query.name?.trim(),
+      });
     },
   );
 
