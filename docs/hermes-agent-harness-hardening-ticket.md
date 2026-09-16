@@ -319,7 +319,7 @@ Tool behavior release gate:
 - Every discoverable domain tool belongs to the Cafe OS namespace, and the full catalog matches its reviewed schema snapshot.
 - DeepSeek V4.1 Flash returns only valid Cafe tool IDs through the forced `select_cafe_tools` call, with reasoning disabled and a bounded output.
 - The first main-agent hop receives only the validated, bounded subset selected for the active request.
-- Discovery remains available for non-selected and future Cafe capabilities, and an activated tool remains directly usable for the rest of that request.
+- Cafe-only discovery remains available as a request-scoped fallback when routing fails, returns no usable capability, or explicitly selects discovery; an activated tool remains directly usable for the rest of that request.
 - Router failure or low confidence degrades to Cafe-only discovery, never to the entire catalog or a general-purpose toolset.
 - A workflow makes at most one discovery query for a distinct missing capability and never repeats a description lookup it already completed.
 - Zero malformed discovery or wrapper calls.

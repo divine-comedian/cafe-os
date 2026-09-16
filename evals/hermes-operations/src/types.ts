@@ -28,7 +28,11 @@ export interface TurnExpectation {
   stateContains?: Array<{ table: TableName; fields: Record<string, unknown> }>;
   stateAbsent?: Array<{ table: TableName; fields: Record<string, unknown> }>;
   toolCallContains?: Array<{ name: string; arguments: Record<string, unknown> }>;
+  toolCallOmits?: Array<{ name: string; fields: string[] }>;
   confirmationTools?: string[];
+  routerRequiresUserInput?: string[];
+  routerRequiresAnyOf?: string[][];
+  terminalReason?: string;
 }
 
 export interface EvalTurn { prompt: string; expect: TurnExpectation }
@@ -88,6 +92,7 @@ export interface EvalRun {
   model: string;
   provider: string;
   profile: string;
+  suite: string;
   reasoning: ReasoningEffort;
   scenarios: ScenarioResult[];
   summary: {

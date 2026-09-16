@@ -48,9 +48,10 @@ Do not substitute shell, code execution, file inspection, web, memory, SQL, or d
 ## Record workflow
 
 1. Read existing records only when a foreign-key UUID or current value is not already in the active conversation. Use the `name` filter rather than listing everything. For a purchase identified by provider name, date, or status, query `resource: "purchase"` once with `provider_name`, `purchased_at`, and/or `status`; do not query the provider separately first.
+   In terse purchase phrasing, keep provider and lot names separate: Spanish `a <proveedor> del lote <lote>` and English `from <provider> for the <lot> lot` do not make the connector words part of either name.
 2. Treat one case-insensitive exact full-name match as resolved even if the partial search also returns longer names. If there is no exact match and more than one plausible candidate remains, show minimal distinguishing fields and ask one focused question. Do not read dependencies or prepare a mutation yet.
 3. Extract a proposed record without filling gaps. Use `null` only to explicitly clear an optional field; omit unknown optional fields.
-4. Call the matching mutation tool with the exact proposed fields. It stores a pending operation but does not write business data.
+4. Call the matching mutation tool with the exact proposed fields. It stores a pending operation but does not write business data. Never claim a proposal is ready or ask for confirmation before this call returns `pending_confirmation`.
 5. Present the returned canonical fields with units and currency, then ask whether to execute that exact proposal.
 6. After approval, call the same tool once with only its `confirmation_id`. Report the authoritative receipt's UUID and status, then stop; do not verify with a read.
 7. For purchase evidence, create the purchase first, then separately prepare and confirm the upload or replacement.

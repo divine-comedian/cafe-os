@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scenarios } from "../src/scenarios.ts";
+import { partialRequestScenarios } from "../src/partial-request-scenarios.ts";
 
 const cafeTools = [
   "query_records",
@@ -27,8 +28,18 @@ describe("scenario catalog", () => {
   });
 
   it("keeps every turn within the configured 20-hop ceiling", () => {
-    for (const scenario of scenarios) {
+    for (const scenario of [...scenarios, ...partialRequestScenarios]) {
       for (const turn of scenario.turns) expect(turn.expect.maxApiCalls).toBeLessThanOrEqual(20);
     }
+  });
+
+  it("covers incomplete requests, required follow-ups, and optional omissions", () => {
+    expect(partialRequestScenarios).toHaveLength(7);
+    expect(new Set(partialRequestScenarios.map((scenario) => scenario.id)).size).toBe(7);
+    expect(partialRequestScenarios.flatMap((scenario) => scenario.turns)).toHaveLength(19);
+    expect(partialRequestScenarios.some((scenario) => scenario.id.includes("voice_note"))).toBe(true);
+    const turns = partialRequestScenarios.flatMap((scenario) => scenario.turns);
+    expect(turns.some((turn) => (turn.expect.routerRequiresUserInput?.length ?? 0) > 0)).toBe(true);
+    expect(turns.some((turn) => (turn.expect.toolCallOmits?.length ?? 0) > 0)).toBe(true);
   });
 });

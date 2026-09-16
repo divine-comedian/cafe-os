@@ -40,7 +40,7 @@ npm run build
 - `CAFE_TOOL_ROUTER_MODEL` defaults to `deepseek/deepseek-v4.1-flash`; router reasoning is disabled and its output is capped at 256 tokens.
 - `CAFE_TOOL_ROUTER_TIMEOUT_MS` defaults to 20 seconds; the host subprocess allows 22 seconds so the TypeScript router can return its typed fallback cleanly when OpenRouter is slow.
 
-The Hermes boundary limits the active catalog to five routed tools plus discovery, allows at most one discovery call, caps each tool result at 24,000 serialized characters and aggregate results at 48,000 characters per turn, reserves at most 4,096 completion tokens per model hop, and enforces an 8,192-token aggregate turn budget.
+The Hermes boundary limits the active catalog to five routed tools. Cafe-only discovery is exposed when the cheap router fails, returns no usable tool, or explicitly routes to discovery; a confident sufficient route does not also expose discovery. A request allows at most one discovery call. Each tool result is capped at 24,000 serialized characters and aggregate results at 48,000 characters per turn; the harness reserves at most 4,096 completion tokens per model hop and enforces an 8,192-token aggregate turn budget.
 
 The upload adapter resolves symlinks before checking the allowlist. It refuses directories and paths outside the configured roots, preventing an agent-supplied path from turning into arbitrary host-file access.
 

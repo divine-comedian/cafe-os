@@ -51,6 +51,11 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
     const found = toolCalls.some((call) => shortToolName(call.name) === expected.name && containsFields(call.arguments, expected.arguments));
     results.push(check(found, `tool call contains ${expected.name} arguments`));
   }
+  for (const expected of expectation.toolCallOmits ?? []) {
+    const calls = toolCalls.filter((call) => shortToolName(call.name) === expected.name);
+    const present = calls.flatMap((call) => expected.fields.filter((field) => Object.hasOwn(call.arguments, field)));
+    results.push(check(calls.length > 0 && present.length === 0, `${expected.name} omits unknown optional fields${present.length ? `; saw ${present.join(", ")}` : ""}`));
+  }
   for (const expected of expectation.confirmationTools ?? []) {
     const found = toolCalls.some((call) => shortToolName(call.name) === expected
       && typeof call.arguments.confirmation_id === "string"
@@ -80,7 +85,7 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
   if (locale === "en") {
     results.push(check(!/^(?:¿|Encontré|Listo|Guardado|Necesito|Preparé|Compra|Propuesta|Recibo|Eliminación|Cambio|Trazabilidad|No se)\b/iu.test(response), "response language is English"));
   } else if (locale === "es-MX") {
-    results.push(check(!/^(?:I|The|Found|Saved|Which|Done|Draft|Purchase|Deletion|Provider|Receipt|Here|Pending|Nothing|Reply|Exact)\b/iu.test(response), "response language is Spanish"));
+    results.push(check(!/^(?:I|The|Found|Saved|Which|Done|Draft|Purchase|Deletion|Provider|Receipt|Here|Pending|Nothing|Reply|Exact|Weight)\b/iu.test(response), "response language is Spanish"));
   }
   if (harnessEvents.length) {
     const routerEvents = harnessEvents.filter((event) => event.event === "router");
@@ -96,6 +101,22 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
       forbiddenRouted.length === 0,
       `router excludes forbidden tools${forbiddenRouted.length ? `; saw ${forbiddenRouted.join(", ")}` : ""}`,
     ));
+    if (expectation.routerRequiresUserInput) {
+      const routedMissing = new Set(Array.isArray(routerEvents[0]?.requires_user_input)
+        ? routerEvents[0].requires_user_input as string[] : []);
+      const absent = expectation.routerRequiresUserInput.filter((field) => !routedMissing.has(field));
+      results.push(check(absent.length === 0, `router requests required user input${absent.length ? `; missing ${absent.join(", ")}` : ""}`));
+    }
+    if (expectation.routerRequiresAnyOf) {
+      const routedMissing = new Set(Array.isArray(routerEvents[0]?.requires_user_input)
+        ? routerEvents[0].requires_user_input as string[] : []);
+      for (const alternatives of expectation.routerRequiresAnyOf) {
+        results.push(check(
+          alternatives.some((field) => routedMissing.has(field)),
+          `router requests one of ${alternatives.join(" or ")}`,
+        ));
+      }
+    }
     const activeToolSets = harnessEvents
       .filter((event) => event.event === "model_hop" && Array.isArray(event.active_tools))
       .map((event) => event.active_tools as unknown[]);
@@ -111,6 +132,12 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
     }
     const terminalEvents = harnessEvents.filter((event) => event.event === "terminal");
     results.push(check(terminalEvents.length >= 1, "turn records an explicit terminal reason"));
+    if (expectation.terminalReason) {
+      results.push(check(
+        terminalEvents.some((event) => event.terminal_reason === expectation.terminalReason),
+        `terminal reason is ${expectation.terminalReason}`,
+      ));
+    }
   }
   if (usage.failed) results.push(check(false, `Hermes run failed: ${usage.failure ?? "unknown failure"}`));
   return results;

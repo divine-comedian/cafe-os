@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gradeTurn } from "./grade.ts";
 import { MockCafeApi } from "./mock-api.ts";
+import { partialRequestScenarios } from "./partial-request-scenarios.ts";
 import { scenarios } from "./scenarios.ts";
 import type { EvalRun, EvalScenario, HarnessEvent, ReasoningEffort, ScenarioResult, ToolCall, TurnResult, UsageReport } from "./types.ts";
 
@@ -17,6 +18,7 @@ interface Options {
   outDir: string;
   list: boolean;
   verbose: boolean;
+  suite: "core" | "partial" | "all";
 }
 
 function parseArgs(argv: string[]): Options {
@@ -29,6 +31,7 @@ function parseArgs(argv: string[]): Options {
     outDir: "results",
     list: false,
     verbose: false,
+    suite: "core",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -39,11 +42,13 @@ function parseArgs(argv: string[]): Options {
     else if (arg === "--model" && value) { options.model = value; index += 1; }
     else if (arg === "--provider" && value) { options.provider = value; index += 1; }
     else if (arg === "--reasoning" && value) { options.reasoning = value as ReasoningEffort; index += 1; }
+    else if (arg === "--suite" && value) { options.suite = value as Options["suite"]; index += 1; }
     else if (arg === "--scenario" && value) { options.scenarioIds.push(...value.split(",")); index += 1; }
     else if (arg === "--out" && value) { options.outDir = value; index += 1; }
     else throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
   if (!["none", "minimal", "low", "medium", "high"].includes(options.reasoning)) throw new Error(`Unsupported reasoning effort: ${options.reasoning}`);
+  if (!["core", "partial", "all"].includes(options.suite)) throw new Error(`Unsupported eval suite: ${options.suite}`);
   return options;
 }
 
@@ -141,6 +146,7 @@ function renderMarkdown(run: EvalRun): string {
     `# Hermes operations eval — ${run.runId}`,
     "",
     `Model: \`${run.model}\` via \`${run.provider}\`; reasoning: \`${run.reasoning}\``,
+    `Suite: \`${run.suite}\``,
     "",
     "| Scenario | Locale | Pass | Hops | Tools | Envelopes | Input | Cache read | Reasoning | Output | Cost USD |",
     "|---|---:|:---:|---:|---:|---:|---:|---:|---:|---:|---:|",
@@ -296,11 +302,19 @@ function summarize(run: Omit<EvalRun, "summary">): EvalRun["summary"] {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  const allScenarios = [...scenarios, ...partialRequestScenarios];
+  const suiteScenarios = options.suite === "core"
+    ? scenarios
+    : options.suite === "partial"
+      ? partialRequestScenarios
+      : allScenarios;
   if (options.list) {
-    for (const scenario of scenarios) console.log(`${scenario.id}\t${scenario.locale}\t${scenario.description}`);
+    for (const scenario of suiteScenarios) console.log(`${scenario.id}\t${scenario.locale}\t${scenario.description}`);
     return;
   }
-  const selected = options.scenarioIds.length ? scenarios.filter((scenario) => options.scenarioIds.includes(scenario.id)) : scenarios;
+  const selected = options.scenarioIds.length
+    ? allScenarios.filter((scenario) => options.scenarioIds.includes(scenario.id))
+    : suiteScenarios;
   if (!selected.length) throw new Error("No matching eval scenarios.");
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
   await fs.access(path.join(projectRoot, ".hermes/skills/cafe-os-operations/SKILL.md"));
@@ -311,9 +325,9 @@ async function main(): Promise<void> {
   await fs.writeFile(path.join(tempDir, "eval-receipt.png"), "Cafe OS eval receipt fixture\n");
   const api = new MockCafeApi();
   const apiUrl = await api.start();
-  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${options.reasoning}`;
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${options.suite}-${options.reasoning}`;
   const logPath = path.join(outDir, runId + ".events.jsonl");
-  await fs.writeFile(logPath, JSON.stringify({ event: "run_started", runId, model: options.model, provider: options.provider, reasoning: options.reasoning, scenarios: selected.map((scenario) => scenario.id) }) + "\n");
+  await fs.writeFile(logPath, JSON.stringify({ event: "run_started", runId, suite: options.suite, model: options.model, provider: options.provider, reasoning: options.reasoning, scenarios: selected.map((scenario) => scenario.id) }) + "\n");
   try {
     const scenarioResults: ScenarioResult[] = [];
     const scenarioSessions = new Set<string>();
@@ -327,7 +341,7 @@ async function main(): Promise<void> {
       if (scenarioSession) scenarioSessions.add(scenarioSession);
       scenarioResults.push(result);
     }
-    const base = { runId, startedAt: new Date().toISOString(), model: options.model, provider: options.provider, profile: options.profile, reasoning: options.reasoning, scenarios: scenarioResults };
+    const base = { runId, startedAt: new Date().toISOString(), model: options.model, provider: options.provider, profile: options.profile, suite: options.suite, reasoning: options.reasoning, scenarios: scenarioResults };
     const run: EvalRun = { ...base, summary: summarize(base) };
     const jsonPath = path.join(outDir, `${runId}.json`);
     const markdownPath = path.join(outDir, `${runId}.md`);

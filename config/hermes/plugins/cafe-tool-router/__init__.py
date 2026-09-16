@@ -78,6 +78,7 @@ def _response_language(messages: Any) -> str:
         "necesitamos", "dar", "alta", "nota", "sería", "contacto", "prepáralo", "muéstramela",
         "muestra", "espera", "aprobación", "únicamente", "cambios", "quiero", "estado", "carga",
         "cuánto", "hemos", "nada", "exactamente", "datos", "todavía", "ese", "esa",
+        "peso", "exacto", "exacta", "fue", "kilo", "kilos", "kilogramo", "kilogramos",
     }
     english = {
         "what", "which", "purchase", "purchases", "prepare", "confirm", "confirmed", "save",
@@ -257,6 +258,12 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         lookup_resource = str(routed.get("lookupResource") or "unknown")
         if lookup_resource not in {"provider", "purchase", "green_coffee_lot", "roast_batch", "unknown"}:
             lookup_resource = "unknown"
+        lookup_resources = [
+            str(value) for value in routed.get("lookupResources", [])
+            if str(value) in {"provider", "purchase", "green_coffee_lot", "roast_batch"}
+        ]
+        if lookup_resource != "unknown" and lookup_resource not in lookup_resources:
+            lookup_resources.insert(0, lookup_resource)
         fallback = not bool(routed.get("ok")) or (not selected and not requires_user_input)
         if fallback:
             selected = set()
@@ -289,6 +296,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "missing_required_fields": missing_required_fields,
             "blocking_missing_fields": requires_user_input,
             "lookup_resource": lookup_resource,
+            "lookup_resources": lookup_resources,
+            "work_hop_cap": 4 if len(lookup_resources) > 1 else 3,
         }
         _put_state(session_id, turn_id, state)
         if pending_context:
@@ -309,6 +318,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             missing_required_fields=sorted(missing_required_fields),
             requires_user_input=sorted(requires_user_input),
             lookup_resource=lookup_resource,
+            lookup_resources=lookup_resources,
             fallback_reason=routed.get("fallbackReason"),
         )
 
@@ -322,27 +332,29 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         _event("discovery_activated", session_id=session_id, turn_id=turn_id, tools=sorted(newly_activated))
 
     selected = set(state["selected"])
-    undisclosed = set(cafe_tools) - selected - {_DISCOVERY}
     visible = selected | ({_DISCOVERY} if not state.get("pending_bypass")
                           and not state.get("blocking_missing_fields")
                           and not state.get("phase_instruction")
                           and not state.get("discovery_used")
-                          and (state["fallback"] or undisclosed) else set())
+                          and state["fallback"] else set())
 
     # Operational cap: allow the expected work hops, then force a tool-free wrap-up.
-    cap = 4 if state.get("routed_fallback") else 3
+    cap = 4 if state.get("routed_fallback") else int(state.get("work_hop_cap", 3))
     if state.get("blocking_missing_fields"):
         visible = set()
         terminal_reason = "needs_input"
+        state["terminal_reason"] = terminal_reason
     elif state.get("stop_tools"):
         visible = set()
         terminal_reason = str(state.get("terminal_reason") or "completed")
     elif int(api_call_count or 0) >= cap:
         visible = set()
         terminal_reason = "hop_limit"
+        state["terminal_reason"] = terminal_reason
     elif int(state.get("completion_tokens", 0)) >= 7168:
         visible = set()
         terminal_reason = "token_limit"
+        state["terminal_reason"] = terminal_reason
     else:
         terminal_reason = "active"
 
@@ -428,11 +440,31 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     elif state.get("phase_instruction"):
         messages.append({"role": "system", "content": str(state["phase_instruction"])})
     elif lookup_resource != "unknown" and "query_records" in visible:
+        entity_boundary = (
+            " In Spanish purchase phrasing, 'a PROVEEDOR del lote LOTE' names the provider only "
+            "before 'del lote'; in English, 'from PROVIDER for the LOT lot' keeps those two names separate."
+            if lookup_resource == "provider" else ""
+        )
         messages.append({
             "role": "system",
             "content": (
                 f"Resolve the named {lookup_resource} first with the active Cafe OS read tool. "
                 f"Its resource is fixed to {lookup_resource}; do not search another record type."
+                + entity_boundary
+            ),
+        })
+    active_writes = sorted(
+        name for name in visible
+        if state.get("kinds", {}).get(name) == "write"
+    )
+    if active_writes and not state.get("pending_bypass"):
+        messages.append({
+            "role": "system",
+            "content": (
+                "A proposal does not exist until you call the active mutation tool with the complete "
+                "proposal fields. Do not merely describe a draft or ask for confirmation from prose. "
+                "Call exactly one appropriate active mutation tool now after any required lookups; its "
+                "pending_confirmation result is the only proposal you may present."
             ),
         })
     if state.get("blocking_missing_fields"):
@@ -550,6 +582,8 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
             exact_count = meta.get("exact_match_count") if isinstance(meta, dict) else None
             include = meta.get("include") if isinstance(meta, dict) else None
             applied_filters = meta.get("applied_filters") if isinstance(meta, dict) else None
+            queried_resource = str(args.get("resource") or state.get("lookup_resource") or "") \
+                if isinstance(args, dict) else str(state.get("lookup_resource") or "")
             if state.get("blocking_missing_fields"):
                 state["stop_tools"] = True
                 state["terminal_reason"] = "needs_input"
@@ -563,29 +597,37 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
             elif exact_count == 1 and any(name in state["selected"] for name in {
                 "create_purchase", "create_green_coffee_lot", "create_roast_batch", "update_record", "delete_record"
             }):
-                state["selected"].discard("query_records")
-                if "delete_record" in state["selected"]:
+                remaining_lookups = [
+                    resource for resource in state.get("lookup_resources", [])
+                    if resource != queried_resource
+                ]
+                state["lookup_resources"] = remaining_lookups
+                if remaining_lookups:
+                    state["lookup_resource"] = remaining_lookups[0]
+                    state["phase_instruction"] = (
+                        f"The {queried_resource} reference is resolved. Resolve the named "
+                        f"{remaining_lookups[0]} next with query_records; do not propose the write yet."
+                    )
+                else:
+                    state["selected"].discard("query_records")
+                    state["lookup_resource"] = "unknown"
+                if not remaining_lookups and "delete_record" in state["selected"]:
                     state["phase_instruction"] = (
                         "The exact deletion target is resolved. Do not inspect dependencies and do not "
                         "call query_records again. Call delete_record now with that resource and UUID to "
                         "create the non-writing pending deletion proposal."
                     )
-                elif "update_record" in state["selected"]:
+                elif not remaining_lookups and "update_record" in state["selected"]:
                     state["phase_instruction"] = (
                         "The exact update target is resolved. Call update_record now with only the requested "
                         "changed fields to create the non-writing pending proposal."
                     )
-                elif "create_purchase" in state["selected"]:
+                elif not remaining_lookups and "create_purchase" in state["selected"]:
                     state["phase_instruction"] = (
                         "The exact provider is resolved. Call create_purchase now with the supplied fields "
                         "to create the non-writing pending proposal."
                     )
-                elif "create_green_coffee_lot" in state["selected"]:
-                    state["phase_instruction"] = (
-                        "The exact purchase is resolved. Call the active Cafe OS green-lot creation tool now "
-                        "with the supplied fields to create the non-writing pending proposal."
-                    )
-                elif "create_roast_batch" in state["selected"]:
+                elif not remaining_lookups and "create_roast_batch" in state["selected"]:
                     state["phase_instruction"] = (
                         "The exact green-coffee lot is resolved. Call create_roast_batch now with the supplied "
                         "fields to create the non-writing pending proposal."

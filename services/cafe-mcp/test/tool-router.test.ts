@@ -35,7 +35,7 @@ describe("Cafe tool intent router", () => {
     expect(text).not.toContain("/tmp/private");
   });
 
-  it("uses only the last two user messages and excludes tool results", () => {
+  it("uses recent user messages and excludes tool results", () => {
     expect(
       routingContext([
         { role: "user", content: "old request" },
@@ -64,6 +64,7 @@ describe("Cafe tool intent router", () => {
                     missing_required_fields: [],
                     requires_user_input: [],
                     lookup_resource: "provider",
+                    lookup_resources: ["provider", "green_coffee_lot"],
                   }),
                 },
               }],
@@ -85,6 +86,7 @@ describe("Cafe tool intent router", () => {
       toolIds: ["query_records", "create_purchase"],
       confidence: 0.95,
       lookupResource: "provider",
+      lookupResources: ["provider", "green_coffee_lot"],
     });
     const request = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const payload = JSON.parse(String(request[1].body));
@@ -116,6 +118,77 @@ describe("Cafe tool intent router", () => {
     ).resolves.toMatchObject({ ok: false, fallbackReason: "router_low_confidence" });
   });
 
+  it("keeps validated missing-input output even below the normal confidence floor", async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            tool_calls: [{
+              function: {
+                name: "select_cafe_tools",
+                arguments: JSON.stringify({
+                  intent: "uncertain_purchase_voice_note",
+                  tool_ids: [],
+                  confidence: 0.5,
+                  missing_required_fields: ["green_coffee_lot_id", "received_weight_kg"],
+                  requires_user_input: ["green_coffee_lot_id", "received_weight_kg"],
+                  lookup_resource: "unknown",
+                  lookup_resources: [],
+                }),
+              },
+            }],
+          },
+        }],
+      }),
+      { status: 200 },
+    ));
+
+    await expect(routeCafeTools(
+      { messages: [{ role: "user", content: "I do not know the lot or exact weight." }], tools },
+      config,
+      fetchMock as typeof fetch,
+    )).resolves.toMatchObject({
+      ok: true,
+      toolIds: [],
+      requiresUserInput: ["green_coffee_lot_id", "received_weight_kg"],
+    });
+  });
+
+  it("does not let an optional roast name block a lot-only draft", async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        choices: [{
+          message: {
+            tool_calls: [{
+              function: {
+                name: "select_cafe_tools",
+                arguments: JSON.stringify({
+                  intent: "create_roast_batch",
+                  tool_ids: ["query_records"],
+                  confidence: 0.9,
+                  missing_required_fields: ["name"],
+                  requires_user_input: ["name"],
+                  lookup_resource: "green_coffee_lot",
+                  lookup_resources: ["green_coffee_lot"],
+                }),
+              },
+            }],
+          },
+        }],
+      }),
+      { status: 200 },
+    ));
+
+    await expect(routeCafeTools(
+      { messages: [{ role: "user", content: "Prepare a roast for the named lot without a roast name." }], tools: [
+        ...tools,
+        { type: "function", function: { name: "mcp__cafe_os__create_roast_batch", description: "create roast", parameters: {} } },
+      ] },
+      config,
+      fetchMock as typeof fetch,
+    )).resolves.toMatchObject({ requiresUserInput: [] });
+  });
+
   it("removes green-coffee creation when required variety is missing", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
@@ -129,6 +202,7 @@ describe("Cafe tool intent router", () => {
               missing_required_fields: ["variety"],
               requires_user_input: ["variety"],
               lookup_resource: "unknown",
+              lookup_resources: [],
             }),
           } }] } }],
         }),
@@ -163,6 +237,7 @@ describe("Cafe tool intent router", () => {
             missing_required_fields: ["purchase_id"],
             requires_user_input: ["file_path"],
             lookup_resource: "purchase",
+            lookup_resources: ["purchase"],
           }),
         } }] } }],
       }), { status: 200 }),
@@ -178,6 +253,34 @@ describe("Cafe tool intent router", () => {
       ok: true,
       toolIds: ["query_records", "upload_purchase_document"],
       requiresUserInput: [],
+    });
+  });
+
+  it("lets a latest kilogram clarification satisfy an earlier missing weight", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        choices: [{ message: { tool_calls: [{ function: {
+          name: "select_cafe_tools",
+          arguments: JSON.stringify({
+            intent: "create_purchase_after_weight_clarification",
+            tool_ids: ["query_records", "create_purchase"],
+            confidence: 0.96,
+            missing_required_fields: ["provider_id", "green_coffee_lot_id", "received_weight_kg"],
+            requires_user_input: ["received_weight_kg"],
+            lookup_resource: "provider",
+            lookup_resources: ["provider", "green_coffee_lot"],
+          }),
+        } }] } }],
+      }), { status: 200 }),
+    );
+
+    await expect(routeCafeTools({ messages: [
+      { role: "user", content: "Prepare a purchase; I do not know the weight." },
+      { role: "user", content: "It was 22 kg." },
+    ], tools }, config, fetchMock as typeof fetch)).resolves.toMatchObject({
+      toolIds: ["query_records", "create_purchase"],
+      requiresUserInput: [],
+      lookupResources: ["provider", "green_coffee_lot"],
     });
   });
 });
