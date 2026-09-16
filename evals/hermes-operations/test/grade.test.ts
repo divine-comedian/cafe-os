@@ -26,9 +26,10 @@ describe("eval grading", () => {
       { role: "assistant", tool_calls: [
         { function: { name: "tool_search", arguments: "{\"queries\":[\"cafe\"]}" } },
         { function: { name: "tool_call", arguments: "{\"calls\":[{\"name\":\"mcp__cafe_os__query_records\",\"arguments\":{\"resource\":\"provider\"}}]}" } },
+        { function: { name: "tool_call", arguments: "{\"calls\":\"malformed nested payload\"}" } },
       ] },
     ] });
-    expect(decoded.raw.map((call) => call.name)).toEqual(["tool_search", "tool_call"]);
+    expect(decoded.raw.map((call) => call.name)).toEqual(["tool_search", "tool_call", "tool_call"]);
     expect(decoded.effective).toEqual([{ name: "mcp__cafe_os__query_records", arguments: { resource: "provider" } }]);
   });
 });

@@ -97,11 +97,13 @@ export function decodeToolCalls(session: Record<string, unknown>): { raw: ToolCa
       } else if (fn.arguments && typeof fn.arguments === "object") parsed = fn.arguments as Record<string, unknown>;
       const envelope = { name: fn.name, arguments: parsed };
       raw.push(envelope);
-      if (fn.name === "tool_call" && Array.isArray(parsed.calls)) {
-        for (const nested of parsed.calls as Array<Record<string, unknown>>) {
-          if (typeof nested.name !== "string") continue;
-          const args = nested.arguments && typeof nested.arguments === "object" ? nested.arguments as Record<string, unknown> : {};
-          effective.push({ name: nested.name, arguments: args });
+      if (fn.name === "tool_call") {
+        if (Array.isArray(parsed.calls)) {
+          for (const nested of parsed.calls as Array<Record<string, unknown>>) {
+            if (typeof nested.name !== "string") continue;
+            const args = nested.arguments && typeof nested.arguments === "object" ? nested.arguments as Record<string, unknown> : {};
+            effective.push({ name: nested.name, arguments: args });
+          }
         }
       } else if (!['tool_search', 'tool_describe'].includes(fn.name)) {
         effective.push(envelope);

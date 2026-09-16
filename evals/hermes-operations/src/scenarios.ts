@@ -37,7 +37,7 @@ export const scenarios: EvalScenario[] = [
         prompt: "Necesitamos dar de alta a Cooperativa Nube, de Oaxaca. La nota sería ‘contacto en expo’. Prepáralo.",
         expect: {
           forbiddenTools: ["create_provider", "update_record", "delete_record"], allowedTools: ["query_records"],
-          maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0, responsePatterns: ["confirm"],
+          maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0, responsePatterns: ["conf[ií]rm"],
         },
       },
       {
