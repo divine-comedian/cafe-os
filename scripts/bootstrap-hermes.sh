@@ -5,6 +5,13 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 hermes_home="${HERMES_HOME:-$HOME/.hermes}"
 hermes_cmd="$(command -v hermes || true)"
 
+mkdir -p "$hermes_home"
+install -m 600 "$project_root/config/hermes/SOUL.md" "$hermes_home/SOUL.md"
+provider_policy_dir="$hermes_home/plugins/model-providers/openrouter"
+install -d -m 700 "$provider_policy_dir"
+install -m 600 "$project_root/config/hermes/plugins/model-providers/openrouter/__init__.py" "$provider_policy_dir/__init__.py"
+install -m 600 "$project_root/config/hermes/plugins/model-providers/openrouter/plugin.yaml" "$provider_policy_dir/plugin.yaml"
+
 if [ -z "$hermes_cmd" ]; then
   curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
     | bash -s -- --skip-setup --skip-browser --skip-computer-use --non-interactive
@@ -24,6 +31,11 @@ fi
 "$hermes_cmd" config set model.provider openrouter
 "$hermes_cmd" config set model.default qwen/qwen3.8-flash
 "$hermes_cmd" config set model.base_url https://openrouter.ai/api/v1
+"$hermes_cmd" config set model.max_tokens 16384
+"$hermes_cmd" config set --force agent.reasoning_effort medium
+# Hermes adds one tool-free wrap-up call after exhaustion: 19 iterations + 1 grace call = 20 hops maximum.
+"$hermes_cmd" config set agent.max_turns 19
+"$hermes_cmd" config set agent.budget_warning_ratio 0.8
 "$hermes_cmd" config set provider_routing.sort price
 "$hermes_cmd" config set provider_routing.data_collection deny
 "$hermes_cmd" config set provider_routing.require_parameters true

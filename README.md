@@ -47,10 +47,13 @@ The user service plus systemd lingering is intentional on this headless host: it
 - `.env.example` — names of required and optional secrets; never commit real values.
 - `scripts/bootstrap-hermes.sh` — idempotent headless runtime/config setup.
 - `scripts/validate-hermes.sh` — non-secret readiness checks.
+- `scripts/setup-hermes-eval.sh` — isolated no-channel Hermes profile for semantic evals.
 - `scripts/db.sh` — password-free shell into the local Supabase Postgres container.
 - `scripts/cafe-api.sh` — build and operate the loopback-only TypeScript API.
 - `services/cafe-api/` — Fastify REST API, validation helpers, and tests.
 - `services/cafe-mcp/` — compact TypeScript MCP adapter for trusted Hermes profiles.
+- `evals/hermes-operations/` — bilingual semantic, trajectory, hop, and token eval suite.
+- `config/hermes/SOUL.md` — versioned Cafe OS organizational identity.
 - `.hermes/skills/cafe-os-operations/` — repo-local operating workflow and safety rules.
 - `docs/hermes-toolbelt.md` — MCP tools, configuration, and rollout runbook.
 - `compose.cafe.yml` — API deployment joined to the private Supabase network.

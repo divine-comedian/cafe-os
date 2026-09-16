@@ -50,23 +50,13 @@ mcp_servers:
       CAFE_MCP_UPLOAD_ROOTS: "${userHome}/.hermes/cache"
     trust: untrusted
     tools:
-      include:
-        - query_records
-        - create_provider
-        - create_purchase
-        - create_green_coffee_lot
-        - create_roast_batch
-        - update_record
-        - set_record_status
-        - delete_record
-        - upload_purchase_document
       resources: false
       prompts: false
 ```
 
 Store `CAFE_API_TOKEN` in that profile's `.env`, not in `config.yaml` or git. `trust: untrusted` makes Hermes request approval for every tool lacking `readOnlyHint: true`, adding a runtime gate around database writes.
 
-Do not add this MCP server to the current public Telegram profile. Create a private operations profile with an allowlist first, then enable the server there. After configuration, run:
+Do not add this MCP server to the current public Telegram profile. Create a private operations profile first, then enable the server there. After configuration, run:
 
 ```bash
 hermes mcp test cafe_os
@@ -78,15 +68,6 @@ Start a new session inside this repository or use `/reload-mcp`. Project skills 
 hermes skills trust
 ```
 
-## Read-only rollout
+## Evaluation
 
-For the safest first live test, expose only:
-
-```yaml
-tools:
-  include: [query_records]
-  resources: false
-  prompts: false
-```
-
-Expand the allowlist after the private profile and approval flow are verified.
+Use the isolated bilingual suite in `evals/hermes-operations`; it runs the full nine-tool surface against a mock API and records exact tool trajectories, model hops, tokens, and cost. See that directory’s README.

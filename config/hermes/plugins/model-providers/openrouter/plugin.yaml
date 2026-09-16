@@ -1,0 +1,5 @@
+name: cafe-os-openrouter-policy
+kind: model-provider
+version: 0.1.0
+description: Preserve Hermes OpenRouter behavior while enforcing the Cafe OS Qwen output ceiling.
+author: Cafe OS
