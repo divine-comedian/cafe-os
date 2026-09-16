@@ -8,6 +8,9 @@
 # Hermes runtime state belongs in ~/.hermes, never in this repository.
 .hermes/
 
+# Generated self-hosted Supabase deployment, credentials, and persistent data.
+supabase/
+
 # Local data, exports, and caches
 data/
 exports/

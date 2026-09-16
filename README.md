@@ -13,6 +13,7 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - Speech-to-text is enabled with the local provider.
 - Discord and Telegram use Hermes' built-in adapters; no custom adapter fork is needed.
 - The gateway service is not started until real API keys, bot tokens, and user allowlists are configured.
+- A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports; its `public` schema has no application tables.
 
 ## Finish setup
 
@@ -45,6 +46,8 @@ The user service plus systemd lingering is intentional on this headless host: it
 - `.env.example` — names of required and optional secrets; never commit real values.
 - `scripts/bootstrap-hermes.sh` — idempotent headless runtime/config setup.
 - `scripts/validate-hermes.sh` — non-secret readiness checks.
+- `scripts/db.sh` — password-free shell into the local Supabase Postgres container.
+- `docs/supabase.md` — self-hosted Supabase operations and security runbook.
 - `docs/headless-deployment.md` — Telegram, Discord, OpenRouter, voice, and systemd runbook.
 - `docs/project-roadmap.md` — phased product direction extracted from the project notes.
 - `cafe del rio project exploration.md` — source meeting transcript.
