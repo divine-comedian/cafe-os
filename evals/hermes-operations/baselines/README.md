@@ -5,3 +5,5 @@ This directory stores reviewed, secret-free benchmark summaries for model-tuning
 Each baseline records the tested commit, model policy, scenario selection, deterministic pass count, tool trajectory, token categories, latency, and estimated OpenRouter cost. Add a new file rather than overwriting an old result when the model, policy, suite, or commit changes.
 
 The `*-full.json` and matching Markdown file capture the first complete 18-scenario run. Scores are strict harness results; known evaluator artifacts are retained and documented rather than silently editing historical numbers.
+
+`2026-09-16-qwen3.8-flash-medium-hardened.md` is the first fully passing 18-scenario result after dynamic intent routing, exact pending-operation confirmation, and request-scoped tool-policy hardening. It records unmet cost and latency targets as remaining tuning work rather than weakening the acceptance criteria.

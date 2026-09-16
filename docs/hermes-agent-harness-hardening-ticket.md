@@ -1,15 +1,17 @@
 # Ticket: harden the Hermes Cafe OS operations harness
 
-Status: implemented; full-suite acceptance benchmark pending
+Status: implementation complete; correctness and tool gates pass; cost and wall-time tuning remain
 Target branch: `eval/model-tuning`  
 Baseline: `2026-09-16T15-06-29-090Z-medium`  
 Reference implementation inspected: `hive-mind@c4440128ba08`
 
 ## Verification status
 
-All local unit tests, schema snapshots, TypeScript builds/type checks, plugin validation, and shell/Python syntax checks pass. Focused live OpenRouter runs pass the corrected read, traceability, missing-data, dependency-delete, upload, ambiguity, and confirmation paths within their operational hop caps. Representative passing run IDs include `2026-09-16T17-44-58-608Z-medium` (traceability), `2026-09-16T17-52-11-682Z-medium` (upload), and `2026-09-16T17-59-52-099Z-medium` (guarded delete).
+Implementation commit `d3382ba79c0686faaa7f108bbbafe4936b635950` passes all local unit tests, schema snapshots, TypeScript builds/type checks, plugin compilation, and the complete live OpenRouter suite. Authoritative run `2026-09-16T19-33-10-024Z-medium` passed 18/18 scenarios and 29/29 turns with 67 main-model hops and 38 Cafe tool calls.
 
-The final uninterrupted 18-scenario release gate remains pending because the configured OpenRouter key reached its weekly allowance during the full run and returned HTTP 402 with zero Qwen tokens for the remaining turns. Those turns are infrastructure failures, not accepted test results, and no incomplete run is promoted into `baselines/`. The per-hop output reservation is now bounded at 4,096 while the aggregate per-turn budget remains 8,192, avoiding an unnecessarily large credit reservation on each hop. Rerun the full verification command after the key allowance resets or is increased.
+The hardened run used 468,352 combined router/main-model tokens, down 47.3% from the first full baseline, and cost $0.034658544, down 13.4%. Summed turn wall time was 462,119 ms, down 25.2%. Correctness, safety, tool behavior, hop, and token gates therefore pass. The 30% cost and wall-time targets remain open and must not be described as accepted. The reviewed scorecard is `evals/hermes-operations/baselines/2026-09-16-qwen3.8-flash-medium-hardened.md`.
+
+The verified implementation includes the DeepSeek request router, bounded dynamic discovery, human-input gating, exact request-scoped confirmations, duplicate/post-write policy enforcement, authoritative mutation receipts, language/date/value preservation, operational budgets, safe telemetry, and verbose deterministic grading. The per-hop output reservation is bounded at 4,096 while the aggregate per-turn budget remains 8,192.
 
 ## Problem
 
@@ -381,3 +383,5 @@ Commit a new reviewed, secret-free baseline under `evals/hermes-operations/basel
 ## Definition of done
 
 The ticket is complete when the full deterministic suite passes, the dynamic Cafe catalog and bounded request-specific activation are proven at runtime, confirmation executes a stored canonical operation once, no general-purpose tools appear in Cafe trajectories, and the new benchmark meets the hop and cost targets without relaxing safety assertions.
+
+Current disposition: every functional condition above is met, as is the hop target. Keep the ticket open for cost and comparable-provider wall-time tuning; do not weaken those thresholds or trade away the passing deterministic suite.
