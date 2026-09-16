@@ -41,7 +41,8 @@ Each domain resource supports list, get, create, patch, and delete:
 The frontend purchase flow associates a purchase with an existing lot or creates a reusable lot inline:
 
 ```text
-POST /v1/purchases/with-green-coffee-lot
+POST /v1/purchases/with-green-coffee-lot  # create confirmed purchase
+POST /v1/roast-batches/confirmed          # create confirmed roast batch
 ```
 
 Purchases and roast batches also expose explicit confirmation and void actions:
@@ -51,6 +52,7 @@ POST /v1/purchases/{id}/confirm
 PUT  /v1/purchases/{id}/confirm  # update fields and confirm atomically
 POST /v1/purchases/{id}/void
 POST /v1/roast-batches/{id}/confirm
+PUT  /v1/roast-batches/{id}/confirm  # update fields and confirm atomically
 POST /v1/roast-batches/{id}/void
 ```
 
@@ -74,10 +76,11 @@ The upload route accepts one multipart field named `file`. The service validates
 - Currency is trimmed and uppercased to a three-letter value.
 - Positive/nonnegative number checks mirror the database constraints.
 - Foreign-key parents are checked before writes.
+- Roast input cannot exceed confirmed purchased weight for its lot minus green input reserved by other non-void roasts.
 - Deletes return `409 DEPENDENCY_CONFLICT` when child records or a purchase document exist.
 - PDFs, JPEGs, PNGs, WebP images, and HEIC images are accepted up to 15 MiB.
 
-The service deliberately does not implement automatic delete cascades, inventory reservation, duplicate-provider matching, immutable confirmed records, or a complex state machine during the MVP.
+The service deliberately does not implement automatic delete cascades, duplicate-provider matching, immutable confirmed records, or a complex state machine during the MVP.
 
 ## Development checks
 

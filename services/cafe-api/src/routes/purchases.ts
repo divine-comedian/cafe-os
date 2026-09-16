@@ -126,6 +126,7 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
           currency: normalizeCurrency(request.body.currency ?? "MXN"),
           payment_method: normalizeLabel(request.body.payment_method),
           notes: normalizeNotes(request.body.notes),
+          status: "confirmed",
         });
         return reply
           .code(201)
