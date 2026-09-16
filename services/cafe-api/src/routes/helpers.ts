@@ -42,15 +42,38 @@ export function requireNonnegativeDecimal(value: string | null, field: string): 
   return value;
 }
 
-export function roastMetrics(roast: Row, lot: Row): Record<string, string | null> {
+export function weightedGreenUnitCost(purchases: Row[]): number | null {
+  const confirmed = purchases.filter((purchase) => purchase.status === "confirmed");
+  const totals = confirmed.reduce<{ amount: number; weight: number }>(
+    (result, purchase) => {
+      if (purchase.total_amount === null || purchase.total_amount === undefined) return result;
+      const amount = Number(purchase.total_amount);
+      const weight = Number(purchase.received_weight_kg);
+      if (!Number.isFinite(amount) || !Number.isFinite(weight) || amount < 0 || weight <= 0) {
+        return result;
+      }
+      return { amount: result.amount + amount, weight: result.weight + weight };
+    },
+    { amount: 0, weight: 0 },
+  );
+  return totals.weight > 0 ? totals.amount / totals.weight : null;
+}
+
+export function roastMetrics(
+  roast: Row,
+  greenUnitCost: number | null,
+): Record<string, string | null> {
   const green = Number(roast.green_input_kg);
   const output = Number(roast.roasted_output_kg);
-  const unitCost = Number(lot.unit_cost_per_kg);
-  if (![green, output, unitCost].every(Number.isFinite) || green <= 0 || output <= 0) {
+  if (![green, output].every(Number.isFinite) || green <= 0 || output <= 0) {
     return { roast_loss_pct: null, base_roasted_cost_per_kg: null };
   }
+  const unitCost = greenUnitCost === null ? null : Number(greenUnitCost);
   return {
     roast_loss_pct: (((green - output) / green) * 100).toFixed(2),
-    base_roasted_cost_per_kg: ((green * unitCost) / output).toFixed(2),
+    base_roasted_cost_per_kg:
+      unitCost !== null && Number.isFinite(unitCost)
+        ? ((green * unitCost) / output).toFixed(2)
+        : null,
   };
 }

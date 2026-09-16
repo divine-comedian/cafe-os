@@ -55,7 +55,7 @@ export const scenarios: EvalScenario[] = [
     description: "Resolve a provider and save a purchase draft after explicit confirmation.",
     turns: [
       {
-        prompt: "Prepare a purchase from Café Sierra dated 2026-09-15 for MXN 3,800 paid by transfer. Note: sample lot. Show me what will be saved first.",
+        prompt: "Prepare a purchase of 20 kg from Café Sierra dated 2026-09-15 for MXN 3,800 paid by transfer, associated with the existing Chiapas lavado green-coffee lot. Note: sample purchase. Show me what will be saved first.",
         expect: {
           requiredTools: ["query_records"], forbiddenTools: ["create_purchase"], allowedTools: ["query_records"],
           minToolCalls: 1, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
@@ -67,21 +67,21 @@ export const scenarios: EvalScenario[] = [
         expect: {
           requiredTools: ["create_purchase"], allowedTools: ["create_purchase"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          stateContains: [{ table: "purchases", fields: { purchased_at: "2026-09-15", total_amount: "3800", currency: "MXN", payment_method: "transfer", notes: "sample lot", status: "draft" } }],
+          stateContains: [{ table: "purchases", fields: { green_coffee_lot_id: "55555555-5555-4555-8555-555555555555", purchased_at: "2026-09-15", received_weight_kg: "20", total_amount: "3800", currency: "MXN", payment_method: "transfer", notes: "sample purchase", status: "draft" } }],
         },
       },
     ],
   },
   {
-    id: "es_missing_lot_cost",
+    id: "es_missing_lot_variety",
     locale: "es-MX",
-    description: "Refuse to invent a required green-coffee unit cost.",
+    description: "Refuse to invent a required green-coffee variety.",
     turns: [{
-      prompt: "Registra un lote nuevo de 25 kg ligado a la compra confirmada de Café Sierra. Se llama Lote feria y viene de Chiapas.",
+      prompt: "Registra un lote nuevo. Se llama Lote feria y viene de Chiapas.",
       expect: {
         forbiddenTools: ["create_green_coffee_lot"], allowedTools: ["query_records"],
         maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
-        responsePatterns: ["costo|precio", "kg"],
+        responsePatterns: ["variedad"],
       },
     }],
   },

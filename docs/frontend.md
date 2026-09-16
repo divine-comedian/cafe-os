@@ -83,8 +83,8 @@ Vite serves `http://127.0.0.1:5173` and proxies API/config requests to port `810
 The interface keeps required entry fields short and shows an exact review step before every write:
 
 - Provider: name and optional region.
-- Purchase: provider, date, total, received weight, variety, optional origin/lot reference, and optional payment method. The purchase and its green-coffee lot are created together; known origins and varieties are suggested while new values remain valid.
-- Green-coffee lot: purchase, received weight, green cost per kg, and optional identity details.
+- Purchase: provider, date, total, received weight, optional payment method, and either an existing green-coffee lot or a new lot entered inline. Several purchases can select the same lot.
+- Green-coffee lot: name, variety, and optional origin. Weight and amount belong to purchases rather than the reusable lot identity.
 - Roast batch: lot, timestamp, green input, roasted output, and optional duration.
 
 Purchases and roast batches are created as drafts. Confirming either record is a separate action with its own review dialog.
@@ -92,7 +92,8 @@ Purchases and roast batches are created as drafts. Confirming either record is a
 The UI derives but does not persist:
 
 ```text
-lot_value = received_weight_kg × unit_cost_per_kg
+weighted_green_unit_cost_per_kg =
+  sum(confirmed purchase amounts) ÷ sum(confirmed purchased weights)
 
 roast_loss_pct =
   (green_input_kg - roasted_output_kg) / green_input_kg × 100
@@ -101,10 +102,10 @@ roast_yield_pct =
   roasted_output_kg / green_input_kg × 100
 
 base_roasted_cost_per_kg =
-  (green_input_kg × unit_cost_per_kg) / roasted_output_kg
+  (green_input_kg × weighted_green_unit_cost_per_kg) / roasted_output_kg
 ```
 
-Base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
+Draft and void purchases do not affect cost or confirmed green weight. Base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
 
 ## Checks
 

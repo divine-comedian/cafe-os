@@ -17,11 +17,11 @@ export function coreFixture(): CafeState {
       { id: IDS.fincaNorte, name: "Finca Norte", region: "veracruz", notes: null },
     ],
     purchases: [
-      { id: IDS.confirmedPurchase, provider_id: IDS.cafeSierra, purchased_at: "2026-09-01", total_amount: "11400.00", currency: "MXN", payment_method: "transferencia", notes: null, document_path: null, status: "confirmed" },
-      { id: IDS.draftPurchase, provider_id: IDS.cafeSierra, purchased_at: "2026-09-14", total_amount: "12500.00", currency: "MXN", payment_method: "efectivo", notes: "pendiente de revisar recibo", document_path: null, status: "draft" },
+      { id: IDS.confirmedPurchase, provider_id: IDS.cafeSierra, green_coffee_lot_id: IDS.greenLot, purchased_at: "2026-09-01", received_weight_kg: "60.000", total_amount: "11400.00", currency: "MXN", payment_method: "transferencia", notes: null, document_path: null, status: "confirmed" },
+      { id: IDS.draftPurchase, provider_id: IDS.cafeSierra, green_coffee_lot_id: IDS.greenLot, purchased_at: "2026-09-14", received_weight_kg: "50.000", total_amount: "12500.00", currency: "MXN", payment_method: "efectivo", notes: "pendiente de revisar recibo", document_path: null, status: "draft" },
     ],
     green_coffee_lots: [
-      { id: IDS.greenLot, purchase_id: IDS.confirmedPurchase, name: "Chiapas lavado", origin: "chiapas, méxico", variety: "bourbon", received_weight_kg: "60.000", unit_cost_per_kg: "190.00", notes: null },
+      { id: IDS.greenLot, name: "Chiapas lavado", origin: "chiapas, méxico", variety: "bourbon", notes: null },
     ],
     roast_batches: [
       { id: IDS.confirmedRoast, green_coffee_lot_id: IDS.greenLot, name: "Tueste prueba", roasted_at: "2026-09-10T16:00:00-06:00", green_input_kg: "10.000", roasted_output_kg: "8.500", duration_seconds: 720, machine_settings: null, notes: null, status: "confirmed" },

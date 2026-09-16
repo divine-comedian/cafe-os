@@ -166,6 +166,11 @@ input::placeholder { color: #a3a59f; }
 .field--full { grid-column: 1 / -1; }
 .form-section { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 7px; border-top: 1px solid var(--line); color: var(--forest); font-size: .78rem; font-weight: 700; }
 .form-section small { font-size: .65rem; font-weight: 500; }
+.lot-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lot-mode label { display: flex; min-height: 44px; align-items: center; justify-content: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: #f8f7f2; cursor: pointer; }
+.lot-mode label:has(input:disabled) { cursor: not-allowed; opacity: .5; }
+.lot-mode .lot-mode__active { border-color: var(--forest-2); color: var(--forest); background: var(--sage); }
+.lot-mode input { position: absolute; width: 1px; min-height: 1px; opacity: 0; }
 .optional, .unit { position: absolute; top: 0; right: 0; color: #929790; font-size: .62rem; font-weight: 600; }
 .unit { color: var(--clay); }
 .optional + .unit, .unit + .optional { right: 55px; }

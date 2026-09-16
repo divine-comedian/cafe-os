@@ -10,10 +10,9 @@ import {
   IdParamsType,
 } from "../schemas.js";
 import { CafeStore, Row } from "../store.js";
-import { dependencyConflict, notFound } from "../errors.js";
+import { ApiError, dependencyConflict, notFound } from "../errors.js";
 import {
   hasOwn,
-  normalizeDecimal,
   normalizeDisplayText,
   normalizeLabel,
   normalizeNotes,
@@ -22,8 +21,6 @@ import {
   listEnvelope,
   pagination,
   recordEnvelope,
-  requireNonnegativeDecimal,
-  requirePositiveDecimal,
   requireRow,
 } from "./helpers.js";
 
@@ -40,12 +37,7 @@ export const greenCoffeeRoutes: FastifyPluginAsyncTypebox<GreenCoffeeRoutesOptio
     { schema: { tags: ["Green coffee"], querystring: GreenCoffeeListQuery } },
     async (request) => {
       const { limit, offset } = pagination(request.query);
-      const rows = await store.list(
-        "green_coffee_lots",
-        { purchase_id: request.query.purchase_id },
-        limit,
-        offset,
-      );
+      const rows = await store.list("green_coffee_lots", {}, limit, offset);
       return listEnvelope(rows, limit, offset);
     },
   );
@@ -63,22 +55,20 @@ export const greenCoffeeRoutes: FastifyPluginAsyncTypebox<GreenCoffeeRoutesOptio
     "/green-coffee-lots",
     { schema: { tags: ["Green coffee"], body: GreenCoffeeCreateSchema } },
     async (request, reply) => {
-      await requireRow(store, "purchases", "purchase", request.body.purchase_id);
-      const weight = requirePositiveDecimal(
-        normalizeDecimal(request.body.received_weight_kg, "received_weight_kg"),
-        "received_weight_kg",
-      );
-      const unitCost = requireNonnegativeDecimal(
-        normalizeDecimal(request.body.unit_cost_per_kg, "unit_cost_per_kg"),
-        "unit_cost_per_kg",
-      );
+      const name = normalizeDisplayText(request.body.name);
+      const variety = normalizeLabel(request.body.variety);
+      if (!name) {
+        throw new ApiError(422, "VALIDATION_ERROR", "name is required.", { field: "name" });
+      }
+      if (!variety) {
+        throw new ApiError(422, "VALIDATION_ERROR", "variety is required.", {
+          field: "variety",
+        });
+      }
       const input: Row = {
-        purchase_id: request.body.purchase_id,
-        name: normalizeDisplayText(request.body.name),
+        name,
         origin: normalizeLabel(request.body.origin),
-        variety: normalizeLabel(request.body.variety),
-        received_weight_kg: weight,
-        unit_cost_per_kg: unitCost,
+        variety,
         notes: normalizeNotes(request.body.notes),
       };
       return reply
@@ -98,24 +88,20 @@ export const greenCoffeeRoutes: FastifyPluginAsyncTypebox<GreenCoffeeRoutesOptio
     },
     async (request) => {
       const input: Row = {};
-      if (request.body.purchase_id !== undefined) {
-        await requireRow(store, "purchases", "purchase", request.body.purchase_id);
-        input.purchase_id = request.body.purchase_id;
+      if (hasOwn(request.body, "name")) {
+        input.name = normalizeDisplayText(request.body.name);
+        if (!input.name) {
+          throw new ApiError(422, "VALIDATION_ERROR", "name is required.", { field: "name" });
+        }
       }
-      if (hasOwn(request.body, "name")) input.name = normalizeDisplayText(request.body.name);
       if (hasOwn(request.body, "origin")) input.origin = normalizeLabel(request.body.origin);
-      if (hasOwn(request.body, "variety")) input.variety = normalizeLabel(request.body.variety);
-      if (request.body.received_weight_kg !== undefined) {
-        input.received_weight_kg = requirePositiveDecimal(
-          normalizeDecimal(request.body.received_weight_kg, "received_weight_kg"),
-          "received_weight_kg",
-        );
-      }
-      if (request.body.unit_cost_per_kg !== undefined) {
-        input.unit_cost_per_kg = requireNonnegativeDecimal(
-          normalizeDecimal(request.body.unit_cost_per_kg, "unit_cost_per_kg"),
-          "unit_cost_per_kg",
-        );
+      if (hasOwn(request.body, "variety")) {
+        input.variety = normalizeLabel(request.body.variety);
+        if (!input.variety) {
+          throw new ApiError(422, "VALIDATION_ERROR", "variety is required.", {
+            field: "variety",
+          });
+        }
       }
       if (hasOwn(request.body, "notes")) input.notes = normalizeNotes(request.body.notes);
       const row = await store.patch("green_coffee_lots", request.params.id, input);
@@ -132,7 +118,15 @@ export const greenCoffeeRoutes: FastifyPluginAsyncTypebox<GreenCoffeeRoutesOptio
       const roasts = await store.count("roast_batches", {
         green_coffee_lot_id: request.params.id,
       });
-      if (roasts) throw dependencyConflict("green coffee lot", { roast_batches: roasts });
+      const purchases = await store.count("purchases", {
+        green_coffee_lot_id: request.params.id,
+      });
+      const dependencies: Record<string, number> = {};
+      if (purchases) dependencies.purchases = purchases;
+      if (roasts) dependencies.roast_batches = roasts;
+      if (Object.keys(dependencies).length) {
+        throw dependencyConflict("green coffee lot", dependencies);
+      }
       await store.delete("green_coffee_lots", request.params.id);
       return reply.code(204).send();
     },

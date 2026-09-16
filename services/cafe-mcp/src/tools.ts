@@ -69,8 +69,7 @@ export function registerCafeTools(server: McpServer, client: CafeApiPort): void 
         resource: z.enum(["provider", "purchase", "green_coffee_lot", "roast_batch"]),
         id: uuid.optional().describe("When present, return exactly this record"),
         provider_id: uuid.optional().describe("Purchase-list filter"),
-        purchase_id: uuid.optional().describe("Green-coffee-lot list filter"),
-        green_coffee_lot_id: uuid.optional().describe("Roast-batch list filter"),
+        green_coffee_lot_id: uuid.optional().describe("Purchase or roast-batch list filter"),
         status: status.optional().describe("Purchase or roast-batch list filter"),
         limit: z.number().int().min(1).max(100).default(50),
         offset: z.number().int().min(0).default(0),
@@ -88,8 +87,8 @@ export function registerCafeTools(server: McpServer, client: CafeApiPort): void 
         if (id) return client.request("GET", route(resource, id));
         const allowed: Record<Resource, string[]> = {
           provider: [],
-          purchase: ["provider_id", "status"],
-          green_coffee_lot: ["purchase_id"],
+          purchase: ["provider_id", "green_coffee_lot_id", "status"],
+          green_coffee_lot: [],
           roast_batch: ["green_coffee_lot_id", "status"],
         };
         const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
@@ -124,7 +123,9 @@ export function registerCafeTools(server: McpServer, client: CafeApiPort): void 
         "Create an unconfirmed supplier purchase draft. Do not guess amounts, dates, currency, provider UUIDs, payment methods, or notes.",
       inputSchema: z.object({
         provider_id: uuid,
+        green_coffee_lot_id: uuid,
         purchased_at: z.string().date().describe("Calendar date in YYYY-MM-DD format"),
+        received_weight_kg: decimal.describe("Purchased green-coffee weight in kilograms"),
         total_amount: nullableDecimal.optional(),
         currency: z.string().default("MXN").describe("ISO 4217 currency code"),
         payment_method: nullableText.optional(),
@@ -140,14 +141,11 @@ export function registerCafeTools(server: McpServer, client: CafeApiPort): void 
     {
       title: "Cafe OS — Create green-coffee lot",
       description:
-        "Create a green-coffee lot linked to a purchase. Weight is kilograms and cost is currency units per kilogram; never infer either value.",
+        "Create a reusable green-coffee lot identity. Purchases carry the supplier, purchased weight, and amount and link back to this lot.",
       inputSchema: z.object({
-        purchase_id: uuid,
-        name: nullableText.optional(),
+        name: z.string().min(1),
         origin: nullableText.optional(),
-        variety: nullableText.optional(),
-        received_weight_kg: decimal,
-        unit_cost_per_kg: decimal,
+        variety: z.string().min(1),
         notes: nullableText.optional(),
       }),
       annotations: writeAnnotations,
@@ -194,7 +192,9 @@ export function registerCafeTools(server: McpServer, client: CafeApiPort): void 
       fields: z
         .object({
           provider_id: uuid.optional(),
+          green_coffee_lot_id: uuid.optional(),
           purchased_at: z.string().date().optional(),
+          received_weight_kg: decimal.optional(),
           total_amount: nullableDecimal.optional(),
           currency: z.string().optional(),
           payment_method: nullableText.optional(),
@@ -207,12 +207,9 @@ export function registerCafeTools(server: McpServer, client: CafeApiPort): void 
       id: uuid,
       fields: z
         .object({
-          purchase_id: uuid.optional(),
-          name: nullableText.optional(),
+          name: z.string().min(1).optional(),
           origin: nullableText.optional(),
-          variety: nullableText.optional(),
-          received_weight_kg: decimal.optional(),
-          unit_cost_per_kg: decimal.optional(),
+          variety: z.string().min(1).optional(),
           notes: nullableText.optional(),
         })
         .refine((fields) => Object.keys(fields).length > 0, "At least one field is required"),

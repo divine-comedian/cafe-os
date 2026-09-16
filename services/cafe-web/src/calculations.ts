@@ -11,37 +11,41 @@ export function roastMetrics(
 ): RoastMetrics {
   const green = Number(greenInput);
   const output = Number(roastedOutput);
-  const unitCost = Number(greenUnitCost);
   if (
     !Number.isFinite(green) ||
     !Number.isFinite(output) ||
-    !Number.isFinite(unitCost) ||
     green <= 0 ||
     output <= 0
   ) {
     return { lossPct: null, yieldPct: null, roastedCostPerKg: null };
   }
+  const unitCost = greenUnitCost === null ? null : Number(greenUnitCost);
 
   return {
     lossPct: ((green - output) / green) * 100,
     yieldPct: (output / green) * 100,
-    roastedCostPerKg: (green * unitCost) / output,
+    roastedCostPerKg:
+      unitCost !== null && Number.isFinite(unitCost) ? (green * unitCost) / output : null,
   };
 }
 
-export function lotValue(
-  weight: string | number | null,
-  unitCost: string | number | null,
+export function weightedGreenUnitCost(
+  purchases: Array<{
+    status: string;
+    total_amount: string | number | null;
+    received_weight_kg: string | number;
+  }>,
 ): number | null {
-  const parsedWeight = Number(weight);
-  const parsedCost = Number(unitCost);
-  if (
-    !Number.isFinite(parsedWeight) ||
-    !Number.isFinite(parsedCost) ||
-    parsedWeight <= 0 ||
-    parsedCost < 0
-  ) {
-    return null;
-  }
-  return parsedWeight * parsedCost;
+  const totals = purchases.reduce(
+    (result, purchase) => {
+      if (purchase.status !== "confirmed") return result;
+      if (purchase.total_amount === null || purchase.total_amount === undefined) return result;
+      const amount = Number(purchase.total_amount);
+      const purchasedWeight = Number(purchase.received_weight_kg);
+      if (!Number.isFinite(amount) || !Number.isFinite(purchasedWeight) || amount < 0 || purchasedWeight <= 0) return result;
+      return { amount: result.amount + amount, weight: result.weight + purchasedWeight };
+    },
+    { amount: 0, weight: 0 },
+  );
+  return totals.weight > 0 ? totals.amount / totals.weight : null;
 }

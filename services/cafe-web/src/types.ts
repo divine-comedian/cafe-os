@@ -11,7 +11,9 @@ export interface Provider {
 export interface Purchase {
   id: string;
   provider_id: string;
+  green_coffee_lot_id: string;
   purchased_at: string;
+  received_weight_kg: string | number;
   status: Status;
   total_amount: string | number | null;
   currency: string;
@@ -23,12 +25,9 @@ export interface Purchase {
 
 export interface CoffeeLot {
   id: string;
-  purchase_id: string;
-  name: string | null;
+  name: string;
   origin: string | null;
-  variety: string | null;
-  received_weight_kg: string | number;
-  unit_cost_per_kg: string | number;
+  variety: string;
   notes: string | null;
   created_at: string;
 }

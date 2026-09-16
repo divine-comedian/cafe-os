@@ -89,7 +89,7 @@ describe("Cafe OS MCP tools", () => {
       arguments: {
         resource: "green_coffee_lot",
         id,
-        fields: { origin: "Chiapas", unit_cost_per_kg: "188.50" },
+        fields: { origin: "Chiapas", variety: "Bourbon" },
       },
     });
     expect(response.isError).not.toBe(true);
@@ -97,7 +97,7 @@ describe("Cafe OS MCP tools", () => {
       {
         method: "PATCH",
         route: `/green-coffee-lots/${id}`,
-        body: { origin: "Chiapas", unit_cost_per_kg: "188.50" },
+        body: { origin: "Chiapas", variety: "Bourbon" },
       },
     ]);
   });

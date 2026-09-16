@@ -5,9 +5,10 @@ The phase-one schema intentionally contains only four application tables:
 ```text
 providers
   └── purchases
-        └── green_coffee_lots
-              └── roast_batches
+        └── green_coffee_lots ── roast_batches
 ```
+
+Each purchase belongs to exactly one green-coffee lot. A green-coffee lot is a reusable identity and can have many purchases.
 
 Every table uses a UUID primary key and a `created_at` timestamp. Records are linked with restrictive foreign keys so operational history cannot be removed accidentally through a cascading delete.
 
@@ -22,7 +23,9 @@ Every table uses a UUID primary key and a `created_at` timestamp. Records are li
 ### `purchases`
 
 - `provider_id`
+- `green_coffee_lot_id`
 - `purchased_at`
+- `received_weight_kg`
 - `status`: `draft`, `confirmed`, or `void`
 - `total_amount`
 - `currency`, defaulting to `MXN`
@@ -38,12 +41,9 @@ providers/{provider_id}/purchases/{purchase_id}/{filename}
 
 ### `green_coffee_lots`
 
-- `purchase_id`
-- optional `name`
+- `name`
 - `origin`
 - `variety`
-- `received_weight_kg`
-- `unit_cost_per_kg`
 - `notes`
 
 ### `roast_batches`
@@ -69,10 +69,14 @@ roast_loss_pct =
   (green_input_kg - roasted_output_kg) / green_input_kg * 100
 
 base_roasted_cost_per_kg =
-  (green_input_kg * unit_cost_per_kg) / roasted_output_kg
+  (green_input_kg * weighted_green_unit_cost_per_kg) / roasted_output_kg
+
+weighted_green_unit_cost_per_kg =
+  sum(confirmed purchase total_amount) /
+  sum(confirmed purchase received_weight_kg)
 ```
 
-The base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
+Draft and void purchases do not enter the weighted cost. The base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
 
 ## Security
 

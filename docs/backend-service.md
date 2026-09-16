@@ -38,7 +38,7 @@ Each domain resource supports list, get, create, patch, and delete:
 /v1/roast-batches
 ```
 
-The frontend purchase flow creates its purchase and green-coffee lot together:
+The frontend purchase flow associates a purchase with an existing lot or creates a reusable lot inline:
 
 ```text
 POST /v1/purchases/with-green-coffee-lot

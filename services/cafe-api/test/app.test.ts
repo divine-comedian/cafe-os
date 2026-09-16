@@ -35,8 +35,17 @@ class MemoryStore implements CafeStore {
     roast_batches: [],
   };
 
-  async list(table: TableName): Promise<Row[]> {
-    return this.rows[table];
+  async list(
+    table: TableName,
+    filters: Record<string, unknown> = {},
+    limit = 50,
+    offset = 0,
+  ): Promise<Row[]> {
+    return this.rows[table]
+      .filter((row) =>
+        Object.entries(filters).every((entry) => entry[1] === undefined || row[entry[0]] === entry[1]),
+      )
+      .slice(offset, offset + limit);
   }
   async get(table: TableName, id: string): Promise<Row | null> {
     return this.rows[table].find((row) => row.id === id) ?? null;
@@ -163,7 +172,7 @@ describe("Cafe API", () => {
     expect(invalid.json().error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("creates a purchase and its green-coffee lot together", async () => {
+  it("creates a purchase and a new reusable green-coffee lot together", async () => {
     const store = new MemoryStore();
     const providerId = crypto.randomUUID();
     store.rows.providers.push({ id: providerId, name: "Finca Test" });
@@ -179,11 +188,11 @@ describe("Cafe API", () => {
         purchased_at: "2026-09-16",
         total_amount: "2400.00",
         currency: "MXN",
-        green_coffee_lot: {
+        received_weight_kg: "20.000",
+        new_green_coffee_lot: {
           name: "Cosecha 2026",
           origin: " CHIAPAS ",
           variety: " BOURBON ",
-          received_weight_kg: "20.000",
         },
       },
     });
@@ -192,21 +201,23 @@ describe("Cafe API", () => {
     expect(response.json().data.green_coffee_lot).toMatchObject({
       origin: "chiapas",
       variety: "bourbon",
+    });
+    expect(response.json().data.purchase).toMatchObject({
+      green_coffee_lot_id: response.json().data.green_coffee_lot.id,
       received_weight_kg: "20.000",
-      unit_cost_per_kg: "120.0000",
     });
     expect(store.rows.purchases).toHaveLength(1);
     expect(store.rows.green_coffee_lots).toHaveLength(1);
   });
 
-  it("rolls back the purchase when its lot cannot be created", async () => {
-    class FailingLotStore extends MemoryStore {
+  it("rolls back a newly created lot when its purchase cannot be created", async () => {
+    class FailingPurchaseStore extends MemoryStore {
       override async create(table: TableName, data: Row): Promise<Row> {
-        if (table === "green_coffee_lots") throw new Error("simulated lot failure");
+        if (table === "purchases") throw new Error("simulated purchase failure");
         return super.create(table, data);
       }
     }
-    const store = new FailingLotStore();
+    const store = new FailingPurchaseStore();
     const providerId = crypto.randomUUID();
     store.rows.providers.push({ id: providerId, name: "Finca Test" });
     const app = await buildApp({ config, store, logger: false });
@@ -220,9 +231,10 @@ describe("Cafe API", () => {
         provider_id: providerId,
         purchased_at: "2026-09-16",
         total_amount: "2400.00",
-        green_coffee_lot: {
+        received_weight_kg: "20.000",
+        new_green_coffee_lot: {
+          name: "Cosecha 2026",
           variety: "bourbon",
-          received_weight_kg: "20.000",
         },
       },
     });
@@ -232,10 +244,46 @@ describe("Cafe API", () => {
     expect(store.rows.green_coffee_lots).toHaveLength(0);
   });
 
+  it("associates multiple purchases with the same existing green-coffee lot", async () => {
+    const store = new MemoryStore();
+    const providerId = crypto.randomUUID();
+    const lotId = crypto.randomUUID();
+    store.rows.providers.push({ id: providerId, name: "Finca Test" });
+    store.rows.green_coffee_lots.push({
+      id: lotId,
+      name: "Cosecha 2026",
+      variety: "bourbon",
+    });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+
+    for (const total of ["1200.00", "2400.00"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/purchases/with-green-coffee-lot",
+        headers: { authorization: "Bearer test-api-token" },
+        payload: {
+          provider_id: providerId,
+          green_coffee_lot_id: lotId,
+          purchased_at: "2026-09-16",
+          received_weight_kg: "10.000",
+          total_amount: total,
+        },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(response.json().data.purchase.green_coffee_lot_id).toBe(lotId);
+    }
+
+    expect(store.rows.purchases).toHaveLength(2);
+    expect(store.rows.green_coffee_lots).toHaveLength(1);
+  });
+
   it("accepts the purchase date and UUID shapes", async () => {
     const store = new MemoryStore();
     const providerId = crypto.randomUUID();
+    const lotId = crypto.randomUUID();
     store.rows.providers.push({ id: providerId, name: "Test" });
+    store.rows.green_coffee_lots.push({ id: lotId, name: "Lot", variety: "typica" });
     const app = await buildApp({ config, store, logger: false });
     apps.push(app);
     const response = await app.inject({
@@ -244,7 +292,9 @@ describe("Cafe API", () => {
       headers: { authorization: "Bearer test-api-token" },
       payload: {
         provider_id: providerId,
+        green_coffee_lot_id: lotId,
         purchased_at: "2026-09-15",
+        received_weight_kg: "1.000",
         total_amount: "100.00",
         currency: " mxn ",
       },
