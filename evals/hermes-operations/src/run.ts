@@ -163,11 +163,12 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
   let sessionId: string | undefined;
   const turns: TurnResult[] = [];
   for (const [turnIndex, turn] of scenario.turns.entries()) {
+    const prompt = turn.prompt.replaceAll("{{UPLOAD_FIXTURE_PATH}}", path.join(tempDir, "eval-receipt.png"));
     const beforeOperations = api.operations.length;
     const usagePath = path.join(tempDir, `${scenario.id}-${turnIndex}-usage.json`);
     const exportPath = path.join(tempDir, `${scenario.id}-${turnIndex}-session.jsonl`);
     const args = [
-      "-p", options.profile, "-z", turn.prompt,
+      "-p", options.profile, "-z", prompt,
       "--usage-file", usagePath,
       "--model", options.model,
       "--provider", options.provider,
@@ -180,7 +181,12 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
     const started = Date.now();
     const processResult = await runProcess("hermes", args, {
       cwd: projectRoot,
-      env: { ...process.env, CAFE_EVAL_API_URL: apiUrl, CAFE_EVAL_API_TOKEN: api.token },
+      env: {
+        ...process.env,
+        CAFE_EVAL_API_URL: apiUrl,
+        CAFE_EVAL_API_TOKEN: api.token,
+        CAFE_EVAL_UPLOAD_ROOT: tempDir,
+      },
       timeoutMs: 120_000,
     });
     let usage: UsageReport;
@@ -202,7 +208,7 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
     const response = sanitizeDiagnostics(processResult.stdout.trim());
     const assertions = gradeTurn(turn.expect, response, toolCalls, operations, usage, api.snapshot());
     const turnResult: TurnResult = {
-      prompt: turn.prompt,
+      prompt,
       response,
       toolCalls,
       rawToolCalls,
@@ -254,6 +260,7 @@ async function main(): Promise<void> {
   const outDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", options.outDir);
   await fs.mkdir(outDir, { recursive: true });
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "cafe-hermes-eval-"));
+  await fs.writeFile(path.join(tempDir, "eval-receipt.png"), "Cafe OS eval receipt fixture\n");
   const api = new MockCafeApi();
   const apiUrl = await api.start();
   const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${options.reasoning}`;

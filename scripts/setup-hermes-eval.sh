@@ -25,7 +25,7 @@ process.stdout.write(JSON.stringify({
   env: {
     CAFE_API_URL: "${CAFE_EVAL_API_URL}",
     CAFE_API_TOKEN: "${CAFE_EVAL_API_TOKEN}",
-    CAFE_MCP_UPLOAD_ROOTS: "${userHome}/.hermes/cache"
+    CAFE_MCP_UPLOAD_ROOTS: "${CAFE_EVAL_UPLOAD_ROOT}"
   },
   trust: "full",
   tools: { resources: false, prompts: false }

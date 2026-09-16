@@ -14,6 +14,17 @@ function sameValue(actual: unknown, expected: unknown): boolean {
   return Object.is(actual, expected);
 }
 
+function containsFields(actual: Record<string, unknown>, expected: Record<string, unknown>): boolean {
+  return Object.entries(expected).every(([key, value]) => {
+    const candidate = actual[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return Boolean(candidate) && typeof candidate === "object" && !Array.isArray(candidate)
+        && containsFields(candidate as Record<string, unknown>, value as Record<string, unknown>);
+    }
+    return sameValue(candidate, value);
+  });
+}
+
 export function gradeTurn(expectation: TurnExpectation, response: string, toolCalls: ToolCall[], operations: RecordedOperation[], usage: UsageReport, state: CafeState): AssertionResult[] {
   const results: AssertionResult[] = [];
   const tools = toolCalls.map((call) => shortToolName(call.name));
@@ -29,8 +40,16 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
   if (expectation.mutationCount !== undefined) results.push(check(operations.length === expectation.mutationCount, `REST mutations = ${expectation.mutationCount}; got ${operations.length}`));
   for (const pattern of expectation.responsePatterns ?? []) results.push(check(new RegExp(pattern, "iu").test(response), `response matches /${pattern}/iu`));
   for (const expected of expectation.stateContains ?? []) {
-    const found = state[expected.table].some((row) => Object.entries(expected.fields).every(([key, value]) => sameValue(row[key], value)));
+    const found = state[expected.table].some((row) => containsFields(row, expected.fields));
     results.push(check(found, `state contains matching ${expected.table} record`));
+  }
+  for (const expected of expectation.stateAbsent ?? []) {
+    const found = state[expected.table].some((row) => containsFields(row, expected.fields));
+    results.push(check(!found, `state excludes matching ${expected.table} record`));
+  }
+  for (const expected of expectation.toolCallContains ?? []) {
+    const found = toolCalls.some((call) => shortToolName(call.name) === expected.name && containsFields(call.arguments, expected.arguments));
+    results.push(check(found, `tool call contains ${expected.name} arguments`));
   }
   if (usage.failed) results.push(check(false, `Hermes run failed: ${usage.failure ?? "unknown failure"}`));
   return results;

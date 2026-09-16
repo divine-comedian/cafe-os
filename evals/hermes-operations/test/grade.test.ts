@@ -9,8 +9,14 @@ describe("eval grading", () => {
   });
   it("checks trajectories, spend, response, and state deterministically", () => {
     const assertions = gradeTurn(
-      { requiredTools: ["query_records"], allowedTools: ["query_records"], maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0, responsePatterns: ["MXN"], stateContains: [{ table: "providers", fields: { name: "café sierra" } }] },
-      "MXN 12,500", [{ name: "mcp__cafe_os__query_records", arguments: {} }], [], { api_calls: 2 }, coreFixture(),
+      {
+        requiredTools: ["query_records"], allowedTools: ["query_records"], maxToolCalls: 1,
+        maxApiCalls: 2, mutationCount: 0, responsePatterns: ["MXN"],
+        stateContains: [{ table: "providers", fields: { name: "café sierra" } }],
+        stateAbsent: [{ table: "providers", fields: { name: "Monte Azul" } }],
+        toolCallContains: [{ name: "query_records", arguments: { resource: "provider", filters: { status: "draft" } } }],
+      },
+      "MXN 12,500", [{ name: "mcp__cafe_os__query_records", arguments: { resource: "provider", filters: { status: "draft", limit: 10 } } }], [], { api_calls: 2 }, coreFixture(),
     );
     expect(assertions.every((item) => item.pass)).toBe(true);
   });
