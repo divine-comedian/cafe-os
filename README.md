@@ -46,6 +46,8 @@ The user service plus systemd lingering is intentional on this headless host: it
 - `scripts/bootstrap-hermes.sh` — idempotent headless runtime/config setup.
 - `scripts/validate-hermes.sh` — non-secret readiness checks.
 - `scripts/db.sh` — password-free shell into the local Supabase Postgres container.
+- `db/migrations/` — ordered SQL migrations for the Cafe OS database.
+- `docs/database.md` — current schema, calculations, Storage convention, and access posture.
 - `docs/supabase.md` — self-hosted Supabase operations and security runbook.
 - `docs/headless-deployment.md` — Telegram, OpenRouter, voice, and systemd runbook.
 - `docs/project-roadmap.md` — phased product direction extracted from the project notes.
