@@ -6,7 +6,12 @@
 *.key
 
 # Hermes runtime state belongs in ~/.hermes, never in this repository.
-.hermes/
+# Only the reviewed repo-local Cafe OS skill is tracked.
+.hermes/*
+!.hermes/skills/
+.hermes/skills/*
+!.hermes/skills/cafe-os-operations/
+!.hermes/skills/cafe-os-operations/SKILL.md
 
 # Generated self-hosted Supabase deployment, credentials, and persistent data.
 supabase/

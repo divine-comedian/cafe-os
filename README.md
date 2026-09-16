@@ -16,7 +16,8 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - Remote admin slash commands are disabled; public users receive only the documented safe command set.
 - The gateway runs as an enabled per-user systemd service and starts automatically at boot.
 - A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema.
-- The TypeScript Cafe API is running on `127.0.0.1:8100`; it is not connected to the public Hermes toolset.
+- The TypeScript Cafe API is running on `127.0.0.1:8100`.
+- A nine-tool TypeScript MCP adapter and guarded Hermes operations skill are implemented but are not connected to the public Hermes toolset.
 
 ## Finish setup
 
@@ -49,6 +50,9 @@ The user service plus systemd lingering is intentional on this headless host: it
 - `scripts/db.sh` — password-free shell into the local Supabase Postgres container.
 - `scripts/cafe-api.sh` — build and operate the loopback-only TypeScript API.
 - `services/cafe-api/` — Fastify REST API, validation helpers, and tests.
+- `services/cafe-mcp/` — compact TypeScript MCP adapter for trusted Hermes profiles.
+- `.hermes/skills/cafe-os-operations/` — repo-local operating workflow and safety rules.
+- `docs/hermes-toolbelt.md` — MCP tools, configuration, and rollout runbook.
 - `compose.cafe.yml` — API deployment joined to the private Supabase network.
 - `db/migrations/` — ordered SQL migrations for the Cafe OS database.
 - `docs/database.md` — current schema, calculations, Storage convention, and access posture.
