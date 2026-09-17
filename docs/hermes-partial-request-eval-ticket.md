@@ -6,6 +6,8 @@ Open. The first strict partial-request benchmark passed 3/7 scenarios and 12/19 
 
 A follow-up model comparison found GLM 5.3 high passed 6/7 scenarios and 17/19 turns with no malformed tool names, while GLM low passed 4/7 and produced an unsafe fabricated placeholder in the uncertain voice-note path. The high failure reproduced in isolation and points to simultaneous ordered lookups receiving the same resource type. See `evals/hermes-operations/baselines/2026-09-16-glm5.3-partial-reasoning-comparison.md`.
 
+Qwen3.8 Flash high also passed 6/7 scenarios, up from 3/7 at medium, without malformed tool names and at far lower cost than GLM. Its isolated voice-note retry still failed through missing proposal creation and an unsupported optional note, so reasoning alone does not close the state/provenance work in this ticket. See `evals/hermes-operations/baselines/2026-09-17-qwen3.8-flash-high-partial.md`.
+
 The safety baseline is promising: none of the incomplete initial messages caused a REST mutation. The remaining work is state fidelity and efficient completion after the missing facts arrive.
 
 ## User behavior under test
