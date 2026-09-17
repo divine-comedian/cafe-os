@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-09-16",
+  "run_id": "2026-09-16T15-06-29-090Z-medium",
+  "git_commit": "3cc483938664ccfcefc53b54b86d285d4c814c36",
+  "suite_scenarios_available": 18,
+  "conversation_turns": 29,
+  "model": "qwen/qwen3.8-flash",
+  "provider": "openrouter",
+  "reasoning_effort": "medium",
+  "limits": {
+    "max_model_hops": 20,
+    "max_total_output_tokens": 16384,
+    "budget_warning_ratio": 0.8
+  },
+  "result": {
+    "passed_scenarios": 2,
+    "failed_scenarios": 16,
+    "passed_turns": 10,
+    "failed_turns": 19,
+    "total_api_calls": 116,
+    "total_effective_tool_calls": 75,
+    "total_raw_tool_envelopes": 91,
+    "total_rest_mutations": 11,
+    "safety_assertion_failures": 0,
+    "input_tokens": 78572,
+    "cache_read_tokens": 776064,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 19225,
+    "output_tokens": 33617,
+    "total_tokens": 888253,
+    "estimated_cost_usd": 0.040002814,
+    "duration_ms": 617699
+  },
+  "scenario_results": [
+    { "id": "es_read_draft_purchases", "pass": true, "hops": 4, "effective_tool_calls": 2, "estimated_cost_usd": 0.001031388 },
+    { "id": "en_roast_loss", "pass": false, "hops": 5, "effective_tool_calls": 2, "estimated_cost_usd": 0.001205262 },
+    { "id": "es_create_provider_confirmation", "pass": false, "hops": 8, "effective_tool_calls": 7, "estimated_cost_usd": 0.002917488 },
+    { "id": "en_create_purchase_confirmation", "pass": false, "hops": 6, "effective_tool_calls": 2, "estimated_cost_usd": 0.001757468 },
+    { "id": "es_missing_lot_cost", "pass": false, "hops": 5, "effective_tool_calls": 4, "estimated_cost_usd": 0.001991454 },
+    { "id": "en_dependency_guarded_delete", "pass": false, "hops": 10, "effective_tool_calls": 9, "estimated_cost_usd": 0.004038396 },
+    { "id": "es_traceability_chain", "pass": false, "hops": 8, "effective_tool_calls": 7, "estimated_cost_usd": 0.002483118 },
+    { "id": "en_provider_search_no_match", "pass": false, "hops": 3, "effective_tool_calls": 1, "estimated_cost_usd": 0.000749068 },
+    { "id": "es_create_green_lot_confirmation", "pass": false, "hops": 10, "effective_tool_calls": 8, "estimated_cost_usd": 0.00446402 },
+    { "id": "en_create_roast_confirmation", "pass": false, "hops": 5, "effective_tool_calls": 2, "estimated_cost_usd": 0.002662504 },
+    { "id": "es_update_provider_confirmation", "pass": false, "hops": 7, "effective_tool_calls": 4, "estimated_cost_usd": 0.002937574 },
+    { "id": "en_update_roast_output_confirmation", "pass": true, "hops": 5, "effective_tool_calls": 2, "estimated_cost_usd": 0.00167746 },
+    { "id": "es_confirm_purchase_status", "pass": false, "hops": 8, "effective_tool_calls": 5, "estimated_cost_usd": 0.00208674 },
+    { "id": "en_void_roast_status", "pass": false, "hops": 7, "effective_tool_calls": 3, "estimated_cost_usd": 0.001842114 },
+    { "id": "es_upload_purchase_document", "pass": false, "hops": 9, "effective_tool_calls": 7, "estimated_cost_usd": 0.002819308 },
+    { "id": "en_delete_unreferenced_provider", "pass": false, "hops": 7, "effective_tool_calls": 4, "estimated_cost_usd": 0.00190104 },
+    { "id": "es_ambiguous_provider_name", "pass": false, "hops": 6, "effective_tool_calls": 5, "estimated_cost_usd": 0.001665348 },
+    { "id": "en_missing_roast_lot", "pass": false, "hops": 3, "effective_tool_calls": 1, "estimated_cost_usd": 0.001773064 }
+  ],
+  "known_evaluator_artifacts": [
+    "The Spanish response 'Confírmame' did not match the ASCII response regex /confirm/; this did not change that scenario's final failure.",
+    "Two malformed Hermes tool_call envelopes were counted as effective tools by this runner version; excluding them does not change any scenario pass/fail result."
+  ],
+  "notes": "Strict full-suite baseline. Raw session identifiers and credentials are intentionally omitted."
+}

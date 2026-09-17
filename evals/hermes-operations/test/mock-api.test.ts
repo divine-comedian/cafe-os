@@ -17,4 +17,24 @@ describe("MockCafeApi", () => {
     expect(deletion.status).toBe(409);
     expect((await deletion.json()).error).toMatchObject({ code: "DEPENDENCY_CONFLICT", dependencies: { purchases: 2 } });
   });
+
+  it("normalizes patches and accepts isolated purchase-document uploads", async () => {
+    api = new MockCafeApi();
+    const base = await api.start();
+    const headers = { authorization: `Bearer ${api.token}`, "content-type": "application/json" };
+    const patched = await fetch(`${base}/v1/roast-batches/${IDS.draftRoast}`, {
+      method: "PATCH", headers, body: JSON.stringify({ roasted_output_kg: "6.800", notes: "  output   reweighed  " }),
+    });
+    expect(await patched.json()).toMatchObject({ data: { roasted_output_kg: "6.8", notes: "output reweighed" } });
+
+    const form = new FormData();
+    form.append("file", new Blob(["fixture"], { type: "image/png" }), "receipt.png");
+    const uploaded = await fetch(`${base}/v1/purchases/${IDS.draftPurchase}/document`, {
+      method: "PUT", headers: { authorization: `Bearer ${api.token}` }, body: form,
+    });
+    expect(await uploaded.json()).toMatchObject({
+      data: { document_path: `purchases/${IDS.draftPurchase}/eval-receipt.png` },
+    });
+    expect(api.operations.map((operation) => operation.method)).toEqual(["PATCH", "PUT"]);
+  });
 });

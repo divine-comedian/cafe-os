@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "namespace": "cafe_os",
+  "tool_names": [
+    "discover_tools",
+    "query_records",
+    "create_provider",
+    "create_purchase",
+    "create_green_coffee_lot",
+    "create_roast_batch",
+    "update_record",
+    "set_record_status",
+    "delete_record",
+    "upload_purchase_document"
+  ],
+  "normalized_schema_sha256": "7ecfcd950d32fbbda1a49594a00d4f82d9d785c248cecdfed7e873f0cff72379"
+}

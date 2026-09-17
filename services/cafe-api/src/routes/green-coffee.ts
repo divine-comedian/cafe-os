@@ -37,8 +37,16 @@ export const greenCoffeeRoutes: FastifyPluginAsyncTypebox<GreenCoffeeRoutesOptio
     { schema: { tags: ["Green coffee"], querystring: GreenCoffeeListQuery } },
     async (request) => {
       const { limit, offset } = pagination(request.query);
-      const rows = await store.list("green_coffee_lots", {}, limit, offset);
-      return listEnvelope(rows, limit, offset);
+      const rows = await store.list(
+        "green_coffee_lots",
+        {},
+        limit,
+        offset,
+        request.query.name ? { field: "name", query: request.query.name.trim() } : undefined,
+      );
+      return listEnvelope(rows, limit, offset, {
+        name: request.query.name?.trim(),
+      });
     },
   );
 

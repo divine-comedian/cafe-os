@@ -24,6 +24,49 @@ function normalizeText(value: unknown): unknown {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : value;
 }
 
+function normalizeDecimal(value: unknown): unknown {
+  return value == null ? value : String(Number(value));
+}
+
+function normalizeRow(table: TableName, fields: Record<string, unknown>): Record<string, unknown> {
+  const normalized = { ...fields };
+  const displayText = ["name", "notes"];
+  const lowerText = table === "providers"
+    ? ["region"]
+    : table === "purchases"
+      ? ["payment_method"]
+      : table === "green_coffee_lots"
+        ? ["origin", "variety"]
+        : [];
+  const decimals = table === "purchases"
+    ? ["received_weight_kg", "total_amount"]
+    : table === "green_coffee_lots"
+      ? []
+      : table === "roast_batches"
+        ? ["green_input_kg", "roasted_output_kg"]
+        : [];
+
+  for (const key of displayText) {
+    if (key in normalized) normalized[key] = normalizeText(normalized[key]);
+  }
+  for (const key of lowerText) {
+    if (typeof normalized[key] === "string") normalized[key] = String(normalizeText(normalized[key])).toLocaleLowerCase();
+  }
+  for (const key of decimals) {
+    if (key in normalized) normalized[key] = normalizeDecimal(normalized[key]);
+  }
+  if (table === "purchases" && "currency" in normalized) {
+    normalized.currency = String(normalized.currency ?? "MXN").trim().toUpperCase();
+  }
+  return normalized;
+}
+
+async function drain(request: IncomingMessage): Promise<void> {
+  for await (const _chunk of request) {
+    // Consume the multipart request so the client can complete cleanly.
+  }
+}
+
 function nextId(counter: number): string {
   return `99999999-9999-4999-8999-${String(counter).padStart(12, "0")}`;
 }
@@ -82,8 +125,30 @@ export class MockCafeApi {
       const offset = Number(filters.offset ?? 0);
       delete filters.limit;
       delete filters.offset;
-      const rows = this.state[table].filter((row) => Object.entries(filters).every(([key, value]) => String(row[key]) === value));
-      return json(response, 200, { data: rows.slice(offset, offset + limit), pagination: { limit, offset, count: rows.length } });
+      const name = filters.name;
+      delete filters.name;
+      const rows = this.state[table].filter((row) =>
+        Object.entries(filters).every(([key, value]) => String(row[key]) === value)
+        && (!name || String(row.name ?? "").toLocaleLowerCase().includes(name.toLocaleLowerCase())),
+      );
+      const requestedName = name?.trim().toLocaleLowerCase();
+      const exactMatches = requestedName
+        ? rows.filter((row) => typeof row.name === "string" && row.name.trim().toLocaleLowerCase() === requestedName)
+        : [];
+      return json(response, 200, {
+        data: rows.slice(offset, offset + limit),
+        meta: {
+          limit,
+          offset,
+          count: rows.length,
+          match_count: rows.length,
+          ...(requestedName ? {
+            exact_match_count: exactMatches.length,
+            exact_match_ids: exactMatches.map((row) => row.id),
+          } : {}),
+          applied_filters: { ...filters, ...(name ? { name } : {}) },
+        },
+      });
     }
 
     const row = id ? this.state[table].find((item) => item.id === id) : undefined;
@@ -102,18 +167,10 @@ export class MockCafeApi {
 
     if (method === "POST" && !id) {
       const body = await readJson(request);
-      const created: Row = { id: nextId(this.counter++), ...body };
+      const created: Row = { id: nextId(this.counter++), ...normalizeRow(table, body) };
       if (table === "purchases" || table === "roast_batches") created.status = "draft";
-      if (table === "providers") {
-        created.name = normalizeText(created.name);
-        created.region = typeof created.region === "string" ? created.region.trim().toLocaleLowerCase() : created.region;
-        created.notes = normalizeText(created.notes);
-      }
       if (table === "purchases") {
-        created.total_amount = created.total_amount == null ? null : String(Number(created.total_amount));
-        created.currency = String(created.currency ?? "MXN").trim().toUpperCase();
-        created.payment_method = typeof created.payment_method === "string" ? created.payment_method.trim().toLocaleLowerCase() : created.payment_method;
-        created.notes = normalizeText(created.notes);
+        if (!("currency" in created)) created.currency = "MXN";
         created.document_path = null;
       }
       this.state[table].push(created);
@@ -125,9 +182,19 @@ export class MockCafeApi {
 
     if (method === "PATCH") {
       const body = await readJson(request);
-      Object.assign(row, body);
+      Object.assign(row, normalizeRow(table, body));
       this.operations.push({ method, path: url.pathname, body });
       return json(response, 200, { data: row });
+    }
+
+    if (method === "PUT" && table === "purchases" && action === "document") {
+      await drain(request);
+      row.document_path = `purchases/${id}/eval-receipt.png`;
+      this.operations.push({ method, path: url.pathname, body: { document_path: row.document_path } });
+      return json(response, 200, {
+        data: row,
+        document: { path: row.document_path, content_type: request.headers["content-type"] },
+      });
     }
 
     if (method === "POST" && (action === "confirmed" || action === "void" || action === "confirm")) {

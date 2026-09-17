@@ -3,6 +3,7 @@ import type { CafeState } from "./types.ts";
 export const IDS = {
   cafeSierra: "11111111-1111-4111-8111-111111111111",
   fincaNorte: "22222222-2222-4222-8222-222222222222",
+  cafeSierraNorte: "88888888-8888-4888-8888-888888888888",
   confirmedPurchase: "33333333-3333-4333-8333-333333333333",
   draftPurchase: "44444444-4444-4444-8444-444444444444",
   greenLot: "55555555-5555-4555-8555-555555555555",
@@ -15,6 +16,7 @@ export function coreFixture(): CafeState {
     providers: [
       { id: IDS.cafeSierra, name: "Café Sierra", region: "chiapas", notes: null },
       { id: IDS.fincaNorte, name: "Finca Norte", region: "veracruz", notes: null },
+      { id: IDS.cafeSierraNorte, name: "Café Sierra Norte", region: "puebla", notes: null },
     ],
     purchases: [
       { id: IDS.confirmedPurchase, provider_id: IDS.cafeSierra, green_coffee_lot_id: IDS.greenLot, purchased_at: "2026-09-01", received_weight_kg: "60.000", total_amount: "11400.00", currency: "MXN", payment_method: "transferencia", notes: null, document_path: null, status: "confirmed" },

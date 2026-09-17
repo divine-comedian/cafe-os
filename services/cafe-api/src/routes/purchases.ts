@@ -5,6 +5,8 @@ import {
   IdParamsType,
   PurchaseCreate,
   PurchaseCreateSchema,
+  PurchaseConfirm,
+  PurchaseConfirmSchema,
   PurchaseListQuery,
   PurchaseListQueryType,
   PurchaseWithGreenCoffeeLotCreate,
@@ -51,12 +53,18 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
         {
           provider_id: request.query.provider_id,
           green_coffee_lot_id: request.query.green_coffee_lot_id,
+          purchased_at: request.query.purchased_at,
           status: request.query.status,
         },
         limit,
         offset,
       );
-      return listEnvelope(rows, limit, offset);
+      return listEnvelope(rows, limit, offset, {
+        provider_id: request.query.provider_id,
+        green_coffee_lot_id: request.query.green_coffee_lot_id,
+        purchased_at: request.query.purchased_at,
+        status: request.query.status,
+      });
     },
   );
 
@@ -124,6 +132,7 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
           currency: normalizeCurrency(request.body.currency ?? "MXN"),
           payment_method: normalizeLabel(request.body.payment_method),
           notes: normalizeNotes(request.body.notes),
+          status: "confirmed",
         });
         return reply
           .code(201)
@@ -234,6 +243,48 @@ export const purchaseRoutes: FastifyPluginAsyncTypebox<PurchaseRoutesOptions> = 
     { schema: { tags: ["Purchases"], params: IdParams } },
     async (request) => {
       const row = await store.patch("purchases", request.params.id, { status: "confirmed" });
+      if (!row) throw notFound("purchase", request.params.id);
+      return recordEnvelope(row);
+    },
+  );
+
+  app.put<{ Params: IdParamsType; Body: PurchaseConfirm }>(
+    "/purchases/:id/confirm",
+    {
+      schema: {
+        tags: ["Purchases"],
+        params: IdParams,
+        body: PurchaseConfirmSchema,
+      },
+    },
+    async (request) => {
+      await requireRow(store, "purchases", "purchase", request.params.id);
+      await requireRow(store, "providers", "provider", request.body.provider_id);
+      await requireRow(
+        store,
+        "green_coffee_lots",
+        "green coffee lot",
+        request.body.green_coffee_lot_id,
+      );
+      const row = await store.patch("purchases", request.params.id, {
+        provider_id: request.body.provider_id,
+        green_coffee_lot_id: request.body.green_coffee_lot_id,
+        ...(hasOwn(request.body, "purchased_at")
+          ? { purchased_at: request.body.purchased_at }
+          : { purchased_at: null }),
+        received_weight_kg: requirePositiveDecimal(
+          normalizeDecimal(request.body.received_weight_kg, "received_weight_kg"),
+          "received_weight_kg",
+        ),
+        total_amount: requireNonnegativeDecimal(
+          normalizeDecimal(request.body.total_amount, "total_amount"),
+          "total_amount",
+        ),
+        currency: normalizeCurrency(request.body.currency ?? "MXN"),
+        payment_method: normalizeLabel(request.body.payment_method),
+        notes: normalizeNotes(request.body.notes),
+        status: "confirmed",
+      });
       if (!row) throw notFound("purchase", request.params.id);
       return recordEnvelope(row);
     },

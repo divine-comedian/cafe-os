@@ -2,8 +2,8 @@ import type { FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { CafeApi } from "./api";
-import { roastMetrics, weightedGreenUnitCost } from "./calculations";
-import type { CoffeeLot, EntryKind, OperationsData, Provider, Purchase, RoastBatch, Status, View } from "./types";
+import { greenCoffeeInventory, roastMetrics, weightedGreenUnitCost } from "./calculations";
+import type { CoffeeLot, EntryKind, OperationsData, Provider, Purchase, RoastBatch, View } from "./types";
 
 const emptyData: OperationsData = { providers: [], purchases: [], lots: [], roasts: [] };
 const nav: Array<{ view: View; label: string; icon: string }> = [
@@ -38,9 +38,12 @@ function localNow() {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
+function localDateTime(value: string | null) {
+  if (!value) return localNow();
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
 function short(id: string) { return id.slice(0, 8).toUpperCase(); }
-function statusText(status: Status) { return status === "draft" ? "Borrador" : status === "confirmed" ? "Confirmado" : "Anulado"; }
-function Status({ value }: { value: Status }) { return <span className={"status status--" + value}>{statusText(value)}</span>; }
 function Spinner({ text }: { text: string }) { return <div className="spinner-wrap"><span className="spinner" />{text}</div>; }
 
 export default function App({ supabase }: { supabase: SupabaseClient }) {
@@ -81,7 +84,8 @@ function Workspace({ supabase, session }: { supabase: SupabaseClient; session: S
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [entry, setEntry] = useState<EntryKind | null>(null);
-  const [confirm, setConfirm] = useState<{ path: string; title: string; detail: string } | null>(null);
+  const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
+  const [editingRoast, setEditingRoast] = useState<RoastBatch | null>(null);
   const api = useMemo(() => new CafeApi(() => session.access_token), [session.access_token]);
   const load = useCallback(async () => {
     setError("");
@@ -94,14 +98,21 @@ function Workspace({ supabase, session }: { supabase: SupabaseClient; session: S
   useEffect(() => { void load(); }, [load]);
 
   async function save(kind: EntryKind, payload: Record<string, unknown>) {
-    const endpoint = { provider: "providers", purchase: "purchases/with-green-coffee-lot", lot: "green-coffee-lots", roast: "roast-batches" }[kind];
+    const endpoint = { provider: "providers", purchase: "purchases/with-green-coffee-lot", lot: "green-coffee-lots", roast: "roast-batches/confirmed" }[kind];
     await api.create(endpoint, payload); setEntry(null);
-    setNotice(kind === "purchase" ? "Compra ligada al lote verde. Revisa la compra antes de confirmarla." : kind === "roast" ? "Borrador guardado. Revísalo antes de confirmarlo." : "Registro guardado.");
+    setNotice(kind === "purchase" ? "Compra guardada." : kind === "roast" ? "Tostado guardado e inventario actualizado." : "Registro guardado.");
     await load(); window.setTimeout(() => setNotice(""), 4000);
   }
-  async function confirmRecord() {
-    if (!confirm) return;
-    await api.action(confirm.path); setConfirm(null); setNotice("Registro confirmado."); await load();
+  async function savePurchaseEdit(payload: Record<string, unknown>) {
+    if (!editingPurchase) return;
+    await api.update(`purchases/${editingPurchase.id}/confirm`, payload, "PUT");
+    setEditingPurchase(null); setNotice("Compra actualizada."); await load();
+    window.setTimeout(() => setNotice(""), 4000);
+  }
+  async function saveRoastEdit(payload: Record<string, unknown>) {
+    if (!editingRoast) return;
+    await api.update(`roast-batches/${editingRoast.id}/confirm`, payload, "PUT");
+    setEditingRoast(null); setNotice("Tostado actualizado e inventario recalculado."); await load();
     window.setTimeout(() => setNotice(""), 4000);
   }
   const heading = copy[view];
@@ -110,30 +121,30 @@ function Workspace({ supabase, session }: { supabase: SupabaseClient; session: S
     <main className="workspace"><header className="mobile-header"><Brand /><button className="text-button" onClick={() => void supabase.auth.signOut()}>Salir</button></header><div className="workspace-inner">
       <header className="page-header"><div><p className="eyebrow">{heading[0]}</p><h1>{heading[1]}</h1><p>{heading[2]}</p></div>{view !== "dashboard" && <button className="button button--primary" onClick={() => setEntry(view === "providers" ? "provider" : view === "purchases" ? "purchase" : view === "lots" ? "lot" : "roast")}>＋ Nuevo registro</button>}</header>
       {notice && <div className="notice">{notice}</div>}{error && <div className="error-banner">{error}<button onClick={() => void load()}>Reintentar</button></div>}
-      {loading ? <section className="panel panel--loading"><Spinner text="Cargando registros…" /></section> : view === "dashboard" ? <Dashboard data={data} setView={setView} setEntry={setEntry} /> : <Records view={view} data={data} onConfirm={setConfirm} />}
+      {loading ? <section className="panel panel--loading"><Spinner text="Cargando registros…" /></section> : view === "dashboard" ? <Dashboard data={data} setView={setView} setEntry={setEntry} /> : <Records view={view} data={data} onEditPurchase={setEditingPurchase} onEditRoast={setEditingRoast} />}
     </div><nav className="mobile-nav">{nav.map((item) => <button key={item.view} className={view === item.view ? "mobile-nav__active" : ""} onClick={() => setView(item.view)}><span>{item.icon}</span>{item.label}</button>)}</nav></main>
     {entry && <EntryModal kind={entry} data={data} onClose={() => setEntry(null)} onSave={save} />}
-    {confirm && <ConfirmModal title={confirm.title} detail={confirm.detail} onClose={() => setConfirm(null)} onConfirm={confirmRecord} />}
+    {editingPurchase && <EditPurchaseModal purchase={editingPurchase} data={data} onClose={() => setEditingPurchase(null)} onSave={savePurchaseEdit} />}
+    {editingRoast && <EditRoastModal roast={editingRoast} data={data} onClose={() => setEditingRoast(null)} onSave={saveRoastEdit} />}
   </div>;
 }
 
 function Dashboard({ data, setView, setEntry }: { data: OperationsData; setView: (view: View) => void; setEntry: (kind: EntryKind) => void }) {
-  const green = data.purchases.filter((item) => item.status === "confirmed").reduce((sum, item) => sum + Number(item.received_weight_kg), 0);
+  const green = data.lots.reduce((sum, lot) => sum + greenCoffeeInventory(lot.id, data.purchases, data.roasts).availableKg, 0);
   const spend = data.purchases.filter((item) => item.status === "confirmed").reduce((sum, item) => sum + Number(item.total_amount || 0), 0);
   const lossValues = data.roasts.filter((item) => item.status === "confirmed").map((item) => {
     const lotPurchases = data.purchases.filter((purchase) => purchase.green_coffee_lot_id === item.green_coffee_lot_id);
     return roastMetrics(item.green_input_kg, item.roasted_output_kg, weightedGreenUnitCost(lotPurchases)).lossPct;
   }).filter((value): value is number => value !== null);
   const avgLoss = lossValues.length ? lossValues.reduce((a, b) => a + b, 0) / lossValues.length : null;
-  const drafts = data.purchases.filter((item) => item.status === "draft").length + data.roasts.filter((item) => item.status === "draft").length;
-  return <><section className="stats-grid"><Stat label="Café verde registrado" value={weight(green)} detail={data.lots.length + " lotes"} tone="green" /><Stat label="Compras confirmadas" value={money(spend)} detail="Monto acumulado" tone="clay" /><Stat label="Merma promedio" value={avgLoss === null ? "—" : avgLoss.toFixed(1) + "%"} detail={lossValues.length + " tostados"} tone="gold" /><Stat label="Por revisar" value={String(drafts)} detail="Borradores pendientes" tone="ink" /></section>
+  return <><section className="stats-grid"><Stat label="Café verde disponible" value={weight(green)} detail={data.lots.length + " lotes"} tone="green" /><Stat label="Compras" value={money(spend)} detail="Monto acumulado" tone="clay" /><Stat label="Merma promedio" value={avgLoss === null ? "—" : avgLoss.toFixed(1) + "%"} detail={lossValues.length + " tostados"} tone="gold" /><Stat label="Tostados" value={String(data.roasts.filter((item) => item.status !== "void").length)} detail="Registros activos" tone="ink" /></section>
     <section className="dashboard-grid"><div className="panel"><div className="panel-heading"><p className="eyebrow">Atajos</p><h2>Registrar movimiento</h2></div><div className="quick-grid">{([["provider","P","Proveedor","Nombre y región"],["purchase","$","Compra","Proveedor, lote y peso"],["lot","L","Lote verde","Identidad, origen y variedad"],["roast","R","Tostado","Entrada y salida"]] as Array<[EntryKind,string,string,string]>).map((item) => <button className="quick-action" key={item[0]} onClick={() => setEntry(item[0])}><span className="quick-action__icon">{item[1]}</span><span><strong>{item[2]}</strong><small>{item[3]}</small></span><b>→</b></button>)}</div></div>
     <div className="panel"><div className="panel-heading panel-heading--row"><div><p className="eyebrow">Estado</p><h2>Flujo operativo</h2></div><button className="text-button" onClick={() => setView("purchases")}>Ver compras</button></div><div className="flow-list"><Flow n={data.providers.length} label="Proveedores" /><Flow n={data.purchases.length} label="Compras" /><Flow n={data.lots.length} label="Lotes" /><Flow n={data.roasts.length} label="Tostados" /></div></div></section></>;
 }
 function Stat({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <article className={"stat-card stat-card--" + tone}><span className="stat-card__dot" /><p>{label}</p><strong>{value}</strong><small>{detail}</small></article>; }
 function Flow({ n, label }: { n: number; label: string }) { return <div className="flow-item"><span>{label.slice(0,1)}</span><strong>{label}</strong><b>{n}</b></div>; }
 
-function Records({ view, data, onConfirm }: { view: Exclude<View, "dashboard">; data: OperationsData; onConfirm: (value: { path: string; title: string; detail: string }) => void }) {
+function Records({ view, data, onEditPurchase, onEditRoast }: { view: Exclude<View, "dashboard">; data: OperationsData; onEditPurchase: (purchase: Purchase) => void; onEditRoast: (roast: RoastBatch) => void }) {
   const [search, setSearch] = useState("");
   const term = search.toLocaleLowerCase("es").trim();
   const provider = (id: string) => data.providers.find((item) => item.id === id)?.name || "Sin proveedor";
@@ -143,14 +154,60 @@ function Records({ view, data, onConfirm }: { view: Exclude<View, "dashboard">; 
   const items = view === "providers" ? data.providers.filter((x) => matches(x.name + " " + (x.region || ""))) : view === "purchases" ? data.purchases.filter((x) => { const purchasedLot = lot(x.green_coffee_lot_id); return matches(provider(x.provider_id) + " " + x.status + " " + (purchasedLot?.name || "") + " " + (purchasedLot?.origin || "") + " " + (purchasedLot?.variety || "")); }) : view === "lots" ? data.lots.filter((x) => matches(x.name + " " + (x.origin || "") + " " + x.variety)) : data.roasts.filter((x) => matches((x.name || "") + " " + (lot(x.green_coffee_lot_id)?.name || "") + " " + x.status));
   return <section className="panel records-panel"><div className="records-toolbar"><label className="search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar registros…" /></label><span>{items.length} registros</span></div>{items.length === 0 ? <Empty /> :
     view === "providers" ? <div className="record-list"><Head labels={["Proveedor","Región","Compras","Alta"]} className="provider-row" />{(items as Provider[]).map((x) => <div className="record-row provider-row" key={x.id}><Primary title={x.name} detail={"#" + short(x.id)} initials={x.name.slice(0,2)} /><span data-label="Región">{x.region || "—"}</span><span data-label="Compras">{data.purchases.filter((p) => p.provider_id === x.id).length}</span><span data-label="Alta">{showDate(x.created_at)}</span></div>)}</div> :
-    view === "purchases" ? <div className="record-list"><Head labels={["Proveedor","Café comprado","Peso","Monto","Estado",""]} className="purchase-row" />{(items as Purchase[]).map((x) => { const purchasedLot = lot(x.green_coffee_lot_id); return <div className="record-row purchase-row" key={x.id}><Primary title={provider(x.provider_id)} detail={showDate(x.purchased_at) + " · Compra #" + short(x.id)} /><span data-label="Café">{purchasedLot ? [purchasedLot.name,purchasedLot.variety,purchasedLot.origin].filter(Boolean).join(" · ") : "Sin lote ligado"}</span><strong data-label="Peso">{weight(x.received_weight_kg)}</strong><strong data-label="Monto">{money(x.total_amount, x.currency)}</strong><span data-label="Estado"><Status value={x.status} /></span><span>{x.status === "draft" && <button className="button button--small" onClick={() => onConfirm({ path: "purchases/" + x.id + "/confirm", title: "Confirmar compra", detail: provider(x.provider_id) + " · " + weight(x.received_weight_kg) + " de " + (purchasedLot?.variety || "café verde") + " · " + money(x.total_amount, x.currency) })}>Revisar</button>}</span></div>; })}</div> :
-    view === "lots" ? <div className="record-list"><Head labels={["Lote","Compras","Peso confirmado","Costo promedio","Proveedores"]} className="lot-row" />{(items as CoffeeLot[]).map((x) => { const associated = lotPurchases(x.id); const confirmed = associated.filter((item) => item.status === "confirmed"); const totalWeight = confirmed.reduce((sum,item) => sum + Number(item.received_weight_kg),0); const unitCost = weightedGreenUnitCost(associated); const providers = [...new Set(associated.map((item) => provider(item.provider_id)))].join(", "); return <div className="record-row lot-row" key={x.id}><Primary title={x.name} detail={[x.origin,x.variety].filter(Boolean).join(" · ")} /><span data-label="Compras">{associated.length}</span><strong data-label="Peso">{weight(totalWeight)}</strong><span data-label="Costo">{unitCost === null ? "—" : money(unitCost) + "/kg"}</span><span data-label="Proveedores">{providers || "—"}</span></div>; })}</div> :
-    <div className="record-list"><Head labels={["Tostado","Entrada → salida","Merma","Costo base","Estado",""]} className="roast-row" />{(items as RoastBatch[]).map((x) => { const parent = lot(x.green_coffee_lot_id); const unitCost = weightedGreenUnitCost(lotPurchases(x.green_coffee_lot_id)); const m = roastMetrics(x.green_input_kg,x.roasted_output_kg,unitCost); return <div className="record-row roast-row" key={x.id}><Primary title={x.name || parent?.name || "Tostado #" + short(x.id)} detail={showDate(x.roasted_at,true)} /><span data-label="Pesos">{weight(x.green_input_kg)} → {weight(x.roasted_output_kg)}</span><strong data-label="Merma">{m.lossPct === null ? "—" : m.lossPct.toFixed(1) + "%"}</strong><span data-label="Costo">{m.roastedCostPerKg === null ? "—" : money(m.roastedCostPerKg) + "/kg"}</span><span data-label="Estado"><Status value={x.status} /></span><span>{x.status === "draft" && <button className="button button--small" onClick={() => onConfirm({ path: "roast-batches/" + x.id + "/confirm", title: "Confirmar tostado", detail: (parent?.name || "Lote") + " · " + weight(x.green_input_kg) + " → " + weight(x.roasted_output_kg) })}>Revisar</button>}</span></div>; })}</div>}
+    view === "purchases" ? <div className="record-list"><Head labels={["Proveedor","Café comprado","Peso","Monto",""]} className="purchase-row" />{(items as Purchase[]).map((x) => { const purchasedLot = lot(x.green_coffee_lot_id); return <div className="record-row purchase-row" key={x.id}><Primary title={provider(x.provider_id)} detail={showDate(x.purchased_at) + " · Compra #" + short(x.id)} /><span data-label="Café">{purchasedLot ? [purchasedLot.name,purchasedLot.variety,purchasedLot.origin].filter(Boolean).join(" · ") : "Sin lote ligado"}</span><strong data-label="Peso">{weight(x.received_weight_kg)}</strong><strong data-label="Monto">{money(x.total_amount, x.currency)}</strong><span>{x.status !== "void" && <button className="button button--small" onClick={() => onEditPurchase(x)}>Editar</button>}</span></div>; })}</div> :
+    view === "lots" ? <div className="record-list"><Head labels={["Lote","Compras","Disponible","Costo promedio","Proveedores"]} className="lot-row" />{(items as CoffeeLot[]).map((x) => { const associated = lotPurchases(x.id); const inventory = greenCoffeeInventory(x.id,data.purchases,data.roasts); const unitCost = weightedGreenUnitCost(associated); const providers = [...new Set(associated.map((item) => provider(item.provider_id)))].join(", "); return <div className="record-row lot-row" key={x.id}><Primary title={x.name} detail={[x.origin,x.variety].filter(Boolean).join(" · ")} /><span data-label="Compras">{associated.length}</span><strong data-label="Disponible">{weight(inventory.availableKg)} <small>de {weight(inventory.purchasedKg)}</small></strong><span data-label="Costo">{unitCost === null ? "—" : money(unitCost) + "/kg"}</span><span data-label="Proveedores">{providers || "—"}</span></div>; })}</div> :
+    <div className="record-list"><Head labels={["Tostado","Entrada → salida","Merma","Costo base",""]} className="roast-row" />{(items as RoastBatch[]).map((x) => { const parent = lot(x.green_coffee_lot_id); const unitCost = weightedGreenUnitCost(lotPurchases(x.green_coffee_lot_id)); const m = roastMetrics(x.green_input_kg,x.roasted_output_kg,unitCost); return <div className="record-row roast-row" key={x.id}><Primary title={x.name || parent?.name || "Tostado #" + short(x.id)} detail={showDate(x.roasted_at,true)} /><span data-label="Pesos">{weight(x.green_input_kg)} → {weight(x.roasted_output_kg)}</span><strong data-label="Merma">{m.lossPct === null ? "—" : m.lossPct.toFixed(1) + "%"}</strong><span data-label="Costo">{m.roastedCostPerKg === null ? "—" : money(m.roastedCostPerKg) + "/kg"}</span><span>{x.status !== "void" && <button className="button button--small" onClick={() => onEditRoast(x)}>Editar</button>}</span></div>; })}</div>}
   </section>;
 }
 function Head({ labels, className }: { labels: string[]; className: string }) { return <div className={"record-row record-row--head " + className}>{labels.map((label,index) => <span key={label + index}>{label}</span>)}</div>; }
 function Primary({ title, detail, initials }: { title: string; detail: string; initials?: string }) { return <span className="primary-cell">{initials && <span className="record-avatar">{initials.toUpperCase()}</span>}<span><strong>{title}</strong><small>{detail}</small></span></span>; }
 function Empty() { return <div className="empty-state"><span>○</span><h3>No hay registros</h3><p>Agrega el primero o cambia tu búsqueda.</p></div>; }
+
+function EditPurchaseModal({ purchase, data, onClose, onSave }: { purchase: Purchase; data: OperationsData; onClose: () => void; onSave: (payload: Record<string, unknown>) => Promise<void> }) {
+  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    const raw = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const payload = { provider_id: raw.provider_id, green_coffee_lot_id: raw.green_coffee_lot_id, purchased_at: raw.purchased_at || null, received_weight_kg: raw.received_weight_kg, total_amount: raw.total_amount, currency: purchase.currency || "MXN", payment_method: raw.payment_method || null, notes: raw.notes ? String(raw.notes).trim() : null };
+    try { await onSave(payload); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo actualizar la compra."); setBusy(false); }
+  }
+  return <Modal onClose={onClose} title="Editar compra" eyebrow="Actualiza los datos"><form className="entry-form" onSubmit={submit}><div className="form-grid">
+    <Field label="Proveedor" full><select name="provider_id" required defaultValue={purchase.provider_id} autoFocus>{data.providers.map((x) => <option key={x.id} value={x.id}>{x.name}{x.region ? " · " + x.region : ""}</option>)}</select></Field>
+    <Field label="Lote de café verde" full><select name="green_coffee_lot_id" required defaultValue={purchase.green_coffee_lot_id}>{data.lots.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.variety}{x.origin ? " · " + x.origin : ""}</option>)}</select></Field>
+    <Field label="Fecha de compra" optional><input name="purchased_at" type="date" defaultValue={purchase.purchased_at || ""} /></Field>
+    <Field label="Total pagado" unit={purchase.currency || "MXN"}><input name="total_amount" type="number" min="0" step="0.01" defaultValue={purchase.total_amount ?? ""} required /></Field>
+    <Field label="Peso comprado" unit="kg"><input name="received_weight_kg" type="number" min="0.001" step="0.001" defaultValue={purchase.received_weight_kg} required /></Field>
+    <Field label="Forma de pago" optional><select name="payment_method" defaultValue={purchase.payment_method || ""}><option value="">Sin especificar</option><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option>{purchase.payment_method && !["transferencia","efectivo","tarjeta"].includes(purchase.payment_method) && <option value={purchase.payment_method}>{purchase.payment_method}</option>}</select></Field>
+    <Field label="Notas" optional full><input name="notes" defaultValue={purchase.notes || ""} placeholder="Información adicional" /></Field>
+    <p className="form-note field--full">Al guardar, la compra quedará confirmada y entrará al peso y costo promedio del lote.</p>
+  </div>{error && <div className="form-error">{error}</div>}<footer className="modal-actions"><button type="button" className="button button--ghost" onClick={onClose} disabled={busy}>Cancelar</button><button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button></footer></form></Modal>;
+}
+
+function EditRoastModal({ roast, data, onClose, onSave }: { roast: RoastBatch; data: OperationsData; onClose: () => void; onSave: (payload: Record<string, unknown>) => Promise<void> }) {
+  const [lotId, setLotId] = useState(roast.green_coffee_lot_id);
+  const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const inventory = greenCoffeeInventory(lotId,data.purchases,data.roasts,roast.id);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError("");
+    const raw = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const greenInput = Number(raw.green_input_kg); const roastedOutput = Number(raw.roasted_output_kg);
+    if (roastedOutput > greenInput) { setError("La salida tostada no puede superar la entrada verde."); return; }
+    if (greenInput > inventory.availableKg + 1e-9) { setError(`Solo hay ${weight(inventory.availableKg)} disponibles para este lote.`); return; }
+    setBusy(true);
+    const payload = { green_coffee_lot_id: lotId, name: raw.name ? String(raw.name).trim() : null, roasted_at: new Date(String(raw.roasted_at)).toISOString(), green_input_kg: raw.green_input_kg, roasted_output_kg: raw.roasted_output_kg, duration_seconds: raw.duration_minutes ? Math.round(Number(raw.duration_minutes) * 60) : null, notes: raw.notes ? String(raw.notes).trim() : null };
+    try { await onSave(payload); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo actualizar el tostado."); setBusy(false); }
+  }
+  return <Modal onClose={onClose} title="Editar tostado" eyebrow="Guardar actualiza inventario"><form className="entry-form" onSubmit={submit}><div className="form-grid">
+    <Field label="Lote de café verde" full><select name="green_coffee_lot_id" required value={lotId} onChange={(event) => setLotId(event.target.value)} autoFocus>{data.lots.map((x) => { const available = greenCoffeeInventory(x.id,data.purchases,data.roasts,roast.id).availableKg; return <option key={x.id} value={x.id}>{x.name} · {weight(available)} disponibles</option>; })}</select></Field>
+    <p className="inventory-note field--full"><strong>{weight(inventory.availableKg)}</strong> disponibles · {weight(inventory.purchasedKg)} comprados · {weight(inventory.reservedKg)} usados en otros tostados</p>
+    <Field label="Nombre" optional full><input name="name" defaultValue={roast.name || ""} placeholder="Ej. Tueste medio" /></Field>
+    <Field label="Fecha y hora" full><input name="roasted_at" type="datetime-local" defaultValue={localDateTime(roast.roasted_at)} required /></Field>
+    <Field label="Entrada verde" unit="kg"><input name="green_input_kg" type="number" min="0.001" max={inventory.availableKg} step="0.001" defaultValue={roast.green_input_kg ?? ""} required /></Field>
+    <Field label="Salida tostada" unit="kg"><input name="roasted_output_kg" type="number" min="0.001" step="0.001" defaultValue={roast.roasted_output_kg ?? ""} required /></Field>
+    <Field label="Duración" unit="min" optional><input name="duration_minutes" type="number" min="0" step="0.1" defaultValue={roast.duration_seconds === null ? "" : roast.duration_seconds / 60} /></Field>
+    <Field label="Notas" optional><input name="notes" defaultValue={roast.notes || ""} /></Field>
+  </div>{error && <div className="form-error">{error}</div>}<footer className="modal-actions"><button type="button" className="button button--ghost" onClick={onClose} disabled={busy}>Cancelar</button><button className="button button--primary" disabled={busy}>{busy ? "Guardando…" : "Guardar"}</button></footer></form></Modal>;
+}
 
 function EntryModal({ kind, data, onClose, onSave }: { kind: EntryKind; data: OperationsData; onClose: () => void; onSave: (kind: EntryKind, payload: Record<string, unknown>) => Promise<void> }) {
   const [proposal, setProposal] = useState<Record<string, unknown> | null>(null);
@@ -162,7 +219,7 @@ function EntryModal({ kind, data, onClose, onSave }: { kind: EntryKind; data: Op
     if (kind === "provider") value = { name: String(raw.name).trim(), ...(raw.region ? { region: String(raw.region).trim() } : {}) };
     else if (kind === "purchase") value = { provider_id: raw.provider_id, ...(raw.purchased_at ? { purchased_at: raw.purchased_at } : {}), received_weight_kg: raw.received_weight_kg, total_amount: raw.total_amount, currency: "MXN", ...(raw.payment_method ? { payment_method: raw.payment_method } : {}), ...(raw.lot_mode === "existing" ? { green_coffee_lot_id: raw.green_coffee_lot_id } : { new_green_coffee_lot: { name: String(raw.lot_name).trim(), ...(raw.origin ? { origin: String(raw.origin).trim() } : {}), variety: String(raw.variety).trim() } }) };
     else if (kind === "lot") value = { name: String(raw.name).trim(), ...(raw.origin ? { origin: String(raw.origin).trim() } : {}), variety: String(raw.variety).trim() };
-    else { if (Number(raw.roasted_output_kg) > Number(raw.green_input_kg)) { setError("La salida tostada no puede superar la entrada verde."); return; } value = { green_coffee_lot_id: raw.green_coffee_lot_id, roasted_at: new Date(String(raw.roasted_at)).toISOString(), green_input_kg: raw.green_input_kg, roasted_output_kg: raw.roasted_output_kg, ...(raw.duration_minutes ? { duration_seconds: Math.round(Number(raw.duration_minutes) * 60) } : {}) }; }
+    else { const inventory = greenCoffeeInventory(String(raw.green_coffee_lot_id),data.purchases,data.roasts); if (Number(raw.roasted_output_kg) > Number(raw.green_input_kg)) { setError("La salida tostada no puede superar la entrada verde."); return; } if (Number(raw.green_input_kg) > inventory.availableKg + 1e-9) { setError(`Solo hay ${weight(inventory.availableKg)} disponibles para este lote.`); return; } value = { green_coffee_lot_id: raw.green_coffee_lot_id, roasted_at: new Date(String(raw.roasted_at)).toISOString(), green_input_kg: raw.green_input_kg, roasted_output_kg: raw.roasted_output_kg, ...(raw.duration_minutes ? { duration_seconds: Math.round(Number(raw.duration_minutes) * 60) } : {}) }; }
     setProposal(value);
   }
   async function save() { if (!proposal) return; setBusy(true); setError(""); try { await onSave(kind,proposal); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo guardar."); setBusy(false); } }
@@ -171,8 +228,10 @@ function EntryModal({ kind, data, onClose, onSave }: { kind: EntryKind; data: Op
 
 function Fields({ kind, data }: { kind: EntryKind; data: OperationsData }) {
   const [lotMode, setLotMode] = useState<"existing" | "new">(data.lots.length ? "existing" : "new");
+  const [selectedRoastLotId, setSelectedRoastLotId] = useState("");
   const knownVarieties = [...new Set(data.lots.map((lot) => lot.variety).filter((value): value is string => Boolean(value)))].sort();
   const knownOrigins = [...new Set(data.lots.map((lot) => lot.origin).filter((value): value is string => Boolean(value)))].sort();
+  const selectedInventory = selectedRoastLotId ? greenCoffeeInventory(selectedRoastLotId,data.purchases,data.roasts) : null;
   if (kind === "provider") return <div className="form-grid"><Field label="Nombre del proveedor" full><input name="name" placeholder="Ej. Finca La Esperanza" required autoFocus /></Field><Field label="Región" optional full><input name="region" placeholder="Ej. Coatepec, Veracruz" /></Field></div>;
   if (kind === "purchase") return <div className="form-grid">
     <Field label="Proveedor" full><select name="provider_id" required defaultValue="" autoFocus><option value="" disabled>Selecciona un proveedor</option>{data.providers.map((x) => <option key={x.id} value={x.id}>{x.name}{x.region ? " · " + x.region : ""}</option>)}</select></Field>
@@ -186,26 +245,21 @@ function Fields({ kind, data }: { kind: EntryKind; data: OperationsData }) {
     <Field label="Origen" optional><input name="origin" list="purchase-origins" placeholder="Ej. Chiapas" /><datalist id="purchase-origins">{knownOrigins.map((origin) => <option key={origin} value={origin} />)}</datalist></Field></>}
     <Field label="Peso comprado" unit="kg"><input name="received_weight_kg" type="number" min="0.001" step="0.001" placeholder="0.000" required /></Field>
     <Field label="Forma de pago" optional full><select name="payment_method" defaultValue=""><option value="">Sin especificar</option><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option></select></Field>
-    <p className="form-note field--full">La compra se guardará como borrador. Al confirmarla, su peso y monto entrarán al costo promedio ponderado del lote.</p>
+    <p className="form-note field--full">Al guardar, el peso y monto entrarán al inventario y al costo promedio ponderado del lote.</p>
   </div>;
   if (kind === "lot") return <div className="form-grid"><Field label="Nombre del lote" full><input name="name" placeholder="Ej. Cosecha 2026 · Lote 04" required autoFocus /></Field><Field label="Origen" optional><input name="origin" list="lot-origins" placeholder="Ej. Chiapas" /><datalist id="lot-origins">{knownOrigins.map((origin) => <option key={origin} value={origin} />)}</datalist></Field><Field label="Variedad"><input name="variety" list="lot-varieties" placeholder="Ej. Bourbon" required /><datalist id="lot-varieties">{knownVarieties.map((variety) => <option key={variety} value={variety} />)}</datalist></Field><p className="form-note field--full">El peso y el costo pertenecen a cada compra. Después podrás asociar varias compras con este lote.</p></div>;
-  return <div className="form-grid"><Field label="Lote de café verde" full><select name="green_coffee_lot_id" required defaultValue="" autoFocus><option value="" disabled>Selecciona un lote</option>{data.lots.map((x) => { const purchases = data.purchases.filter((purchase) => purchase.green_coffee_lot_id === x.id); const total = purchases.filter((purchase) => purchase.status === "confirmed").reduce((sum,purchase) => sum + Number(purchase.received_weight_kg),0); const cost = weightedGreenUnitCost(purchases); return <option key={x.id} value={x.id}>{x.name} · {weight(total)} · {cost === null ? "sin costo confirmado" : money(cost) + "/kg"}</option>; })}</select></Field><Field label="Fecha y hora" full><input name="roasted_at" type="datetime-local" defaultValue={localNow()} required /></Field><Field label="Entrada verde" unit="kg"><input name="green_input_kg" type="number" min="0.001" step="0.001" required /></Field><Field label="Salida tostada" unit="kg"><input name="roasted_output_kg" type="number" min="0.001" step="0.001" required /></Field><Field label="Duración" unit="min" optional full><input name="duration_minutes" type="number" min="0" step="0.1" /></Field><p className="form-note field--full">Calcularemos merma, rendimiento y costo base con el costo promedio de las compras confirmadas. Se guardará como borrador.</p></div>;
+  return <div className="form-grid"><Field label="Lote de café verde" full><select name="green_coffee_lot_id" required value={selectedRoastLotId} onChange={(event) => setSelectedRoastLotId(event.target.value)} autoFocus><option value="" disabled>Selecciona un lote</option>{data.lots.map((x) => { const inventory = greenCoffeeInventory(x.id,data.purchases,data.roasts); const purchases = data.purchases.filter((purchase) => purchase.green_coffee_lot_id === x.id); const cost = weightedGreenUnitCost(purchases); return <option key={x.id} value={x.id}>{x.name} · {weight(inventory.availableKg)} disponibles · {cost === null ? "sin costo" : money(cost) + "/kg"}</option>; })}</select></Field>{selectedInventory && <p className="inventory-note field--full"><strong>{weight(selectedInventory.availableKg)}</strong> disponibles · {weight(selectedInventory.purchasedKg)} comprados · {weight(selectedInventory.reservedKg)} usados</p>}<Field label="Fecha y hora" full><input name="roasted_at" type="datetime-local" defaultValue={localNow()} required /></Field><Field label="Entrada verde" unit="kg"><input name="green_input_kg" type="number" min="0.001" max={selectedInventory?.availableKg} step="0.001" required /></Field><Field label="Salida tostada" unit="kg"><input name="roasted_output_kg" type="number" min="0.001" step="0.001" required /></Field><Field label="Duración" unit="min" optional full><input name="duration_minutes" type="number" min="0" step="0.1" /></Field><p className="form-note field--full">Calcularemos merma, rendimiento y costo base. El café verde disponible bajará al guardar.</p></div>;
 }
 function Field({ label, unit, optional, full, children }: { label: string; unit?: string; optional?: boolean; full?: boolean; children: ReactNode }) { return <label className={full ? "field--full" : ""}>{label}{unit && <span className="unit">{unit}</span>}{optional && <span className="optional">Opcional</span>}{children}</label>; }
 
 function Proposal({ kind, value, data, busy, error, onBack, onSave }: { kind: EntryKind; value: Record<string, unknown>; data: OperationsData; busy: boolean; error: string; onBack: () => void; onSave: () => void }) {
   const rows: Array<[string,ReactNode]> = []; let calc: ReactNode = null;
   if (kind === "provider") rows.push(["Nombre",String(value.name)],["Región",value.region ? String(value.region) : "Sin especificar"]);
-  else if (kind === "purchase") { const newLot = value.new_green_coffee_lot as Record<string, unknown> | undefined; const existingLot = data.lots.find((x) => x.id === value.green_coffee_lot_id); const selectedLot = newLot || existingLot; const unitCost = Number(value.total_amount) / Number(value.received_weight_kg); rows.push(["Proveedor",data.providers.find((x) => x.id === value.provider_id)?.name || "—"],["Fecha",showDate(value.purchased_at ? String(value.purchased_at) : null)],["Total",money(value.total_amount)],["Peso comprado",weight(value.received_weight_kg)],["Lote",selectedLot?.name ? String(selectedLot.name) : "—"],["Variedad",selectedLot?.variety ? String(selectedLot.variety) : "—"],["Origen",selectedLot?.origin ? String(selectedLot.origin) : "Sin especificar"],["Estado",<Status value="draft" />]); calc = <Calc label="Costo de esta compra" value={money(unitCost) + "/kg"} formula={money(value.total_amount) + " ÷ " + weight(value.received_weight_kg)} />; }
+  else if (kind === "purchase") { const newLot = value.new_green_coffee_lot as Record<string, unknown> | undefined; const existingLot = data.lots.find((x) => x.id === value.green_coffee_lot_id); const selectedLot = newLot || existingLot; const unitCost = Number(value.total_amount) / Number(value.received_weight_kg); rows.push(["Proveedor",data.providers.find((x) => x.id === value.provider_id)?.name || "—"],["Fecha",showDate(value.purchased_at ? String(value.purchased_at) : null)],["Total",money(value.total_amount)],["Peso comprado",weight(value.received_weight_kg)],["Lote",selectedLot?.name ? String(selectedLot.name) : "—"],["Variedad",selectedLot?.variety ? String(selectedLot.variety) : "—"],["Origen",selectedLot?.origin ? String(selectedLot.origin) : "Sin especificar"]); calc = <Calc label="Costo de esta compra" value={money(unitCost) + "/kg"} formula={money(value.total_amount) + " ÷ " + weight(value.received_weight_kg)} />; }
   else if (kind === "lot") rows.push(["Nombre",String(value.name)],["Origen",value.origin ? String(value.origin) : "Sin especificar"],["Variedad",String(value.variety)],["Compras asociadas","0 · se agregan desde Compras"]);
-  else { const parent = data.lots.find((x) => x.id === value.green_coffee_lot_id); const unitCost = weightedGreenUnitCost(data.purchases.filter((purchase) => purchase.green_coffee_lot_id === value.green_coffee_lot_id)); const m = roastMetrics(String(value.green_input_kg),String(value.roasted_output_kg),unitCost); rows.push(["Lote",parent?.name || "Lote #" + short(String(value.green_coffee_lot_id))],["Fecha",showDate(String(value.roasted_at),true)],["Entrada",weight(value.green_input_kg)],["Salida",weight(value.roasted_output_kg)],["Estado",<Status value="draft" />]); calc = <div className="calculation-grid"><Calc label="Merma" value={m.lossPct === null ? "—" : m.lossPct.toFixed(2) + "%"} formula="(entrada − salida) ÷ entrada × 100" /><Calc label="Rendimiento" value={m.yieldPct === null ? "—" : m.yieldPct.toFixed(2) + "%"} formula="salida ÷ entrada × 100" /><Calc label="Costo base tostado" value={m.roastedCostPerKg === null ? "—" : money(m.roastedCostPerKg) + "/kg"} formula="(entrada × costo promedio) ÷ salida" /></div>; }
-  return <div className="proposal"><div className="proposal-list">{rows.map((row) => <div key={row[0]}><span>{row[0]}</span><strong>{row[1]}</strong></div>)}</div>{calc}{error && <div className="form-error">{error}</div>}<footer className="modal-actions"><button className="button button--ghost" onClick={onBack} disabled={busy}>← Corregir</button><button className="button button--primary" onClick={onSave} disabled={busy}>{busy ? "Guardando…" : kind === "purchase" || kind === "roast" ? "Guardar borrador" : "Guardar registro"}</button></footer></div>;
+  else { const parent = data.lots.find((x) => x.id === value.green_coffee_lot_id); const unitCost = weightedGreenUnitCost(data.purchases.filter((purchase) => purchase.green_coffee_lot_id === value.green_coffee_lot_id)); const m = roastMetrics(String(value.green_input_kg),String(value.roasted_output_kg),unitCost); rows.push(["Lote",parent?.name || "Lote #" + short(String(value.green_coffee_lot_id))],["Fecha",showDate(String(value.roasted_at),true)],["Entrada",weight(value.green_input_kg)],["Salida",weight(value.roasted_output_kg)]); calc = <div className="calculation-grid"><Calc label="Merma" value={m.lossPct === null ? "—" : m.lossPct.toFixed(2) + "%"} formula="(entrada − salida) ÷ entrada × 100" /><Calc label="Rendimiento" value={m.yieldPct === null ? "—" : m.yieldPct.toFixed(2) + "%"} formula="salida ÷ entrada × 100" /><Calc label="Costo base tostado" value={m.roastedCostPerKg === null ? "—" : money(m.roastedCostPerKg) + "/kg"} formula="(entrada × costo promedio) ÷ salida" /></div>; }
+  return <div className="proposal"><div className="proposal-list">{rows.map((row) => <div key={row[0]}><span>{row[0]}</span><strong>{row[1]}</strong></div>)}</div>{calc}{error && <div className="form-error">{error}</div>}<footer className="modal-actions"><button className="button button--ghost" onClick={onBack} disabled={busy}>← Corregir</button><button className="button button--primary" onClick={onSave} disabled={busy}>{busy ? "Guardando…" : "Guardar registro"}</button></footer></div>;
 }
 function Calc({ label, value, formula }: { label: string; value: string; formula: string }) { return <div className="calculation"><span>{label}</span><strong>{value}</strong><small>{formula}</small></div>; }
 
 function Modal({ onClose, title, eyebrow, children, small = false }: { onClose: () => void; title: string; eyebrow: string; children: ReactNode; small?: boolean }) { return <div className="modal-backdrop" onMouseDown={onClose}><section className={"modal" + (small ? " modal--small" : "")} role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><header className="modal-header"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div><button className="icon-button" onClick={onClose}>×</button></header>{children}</section></div>; }
-function ConfirmModal({ title, detail, onClose, onConfirm }: { title: string; detail: string; onClose: () => void; onConfirm: () => Promise<void> }) {
-  const [busy,setBusy] = useState(false); const [error,setError] = useState("");
-  async function run() { setBusy(true); setError(""); try { await onConfirm(); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo confirmar."); setBusy(false); } }
-  return <Modal onClose={onClose} title={title} eyebrow="Cambio de estado" small><div className="confirm-body"><p>Confirma que estos datos ya fueron revisados:</p><strong>{detail}</strong><p className="form-note">El estado cambiará de borrador a confirmado.</p>{error && <div className="form-error">{error}</div>}</div><footer className="modal-actions"><button className="button button--ghost" onClick={onClose} disabled={busy}>Cancelar</button><button className="button button--primary" onClick={() => void run()} disabled={busy}>{busy ? "Confirmando…" : "Sí, confirmar"}</button></footer></Modal>;
-}

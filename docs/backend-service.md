@@ -2,7 +2,7 @@
 
 The Cafe OS backend is a TypeScript/Fastify service at `services/cafe-api/`. It is the only application component that holds the Supabase service credential. Hermes must interact with this service rather than connecting directly to Postgres or Supabase Storage.
 
-The service listens on `127.0.0.1:8100`. It is not exposed publicly and is not currently registered as a tool provider for the public Telegram agent.
+The service listens on `127.0.0.1:8100`. It is not exposed publicly. The local Cafe MCP adapter connects it to the allowlisted Telegram operations agent; Hermes never connects directly to Supabase.
 
 ## Operations
 
@@ -41,15 +41,18 @@ Each domain resource supports list, get, create, patch, and delete:
 The frontend purchase flow associates a purchase with an existing lot or creates a reusable lot inline:
 
 ```text
-POST /v1/purchases/with-green-coffee-lot
+POST /v1/purchases/with-green-coffee-lot  # create confirmed purchase
+POST /v1/roast-batches/confirmed          # create confirmed roast batch
 ```
 
 Purchases and roast batches also expose explicit confirmation and void actions:
 
 ```text
 POST /v1/purchases/{id}/confirm
+PUT  /v1/purchases/{id}/confirm  # update fields and confirm atomically
 POST /v1/purchases/{id}/void
 POST /v1/roast-batches/{id}/confirm
+PUT  /v1/roast-batches/{id}/confirm  # update fields and confirm atomically
 POST /v1/roast-batches/{id}/void
 ```
 
@@ -73,10 +76,11 @@ The upload route accepts one multipart field named `file`. The service validates
 - Currency is trimmed and uppercased to a three-letter value.
 - Positive/nonnegative number checks mirror the database constraints.
 - Foreign-key parents are checked before writes.
+- Roast input cannot exceed confirmed purchased weight for its lot minus green input reserved by other non-void roasts.
 - Deletes return `409 DEPENDENCY_CONFLICT` when child records or a purchase document exist.
 - PDFs, JPEGs, PNGs, WebP images, and HEIC images are accepted up to 15 MiB.
 
-The service deliberately does not implement automatic delete cascades, inventory reservation, duplicate-provider matching, immutable confirmed records, or a complex state machine during the MVP.
+The service deliberately does not implement automatic delete cascades, duplicate-provider matching, immutable confirmed records, or a complex state machine during the MVP.
 
 ## Development checks
 
@@ -89,4 +93,4 @@ npm run build
 npm audit --omit=dev
 ```
 
-Do not add this API to the public Telegram toolset. The Hermes toolbelt will be designed separately with a small, clearly named function surface and enabled only for a trusted operations profile.
+Expose this API to Hermes only through the small Cafe MCP surface and only on an allowlisted operations profile. Do not grant the Telegram profile direct SQL, Supabase service credentials, shell, or general file access.

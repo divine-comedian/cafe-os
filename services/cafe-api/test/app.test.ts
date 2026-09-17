@@ -40,11 +40,11 @@ class MemoryStore implements CafeStore {
     filters: Record<string, unknown> = {},
     limit = 50,
     offset = 0,
+    textSearch?: { field: "name"; query: string },
   ): Promise<Row[]> {
     return this.rows[table]
-      .filter((row) =>
-        Object.entries(filters).every((entry) => entry[1] === undefined || row[entry[0]] === entry[1]),
-      )
+      .filter((row) => Object.entries(filters).every(([key, value]) => value === undefined || row[key] === value))
+      .filter((row) => !textSearch || String(row[textSearch.field] ?? "").toLocaleLowerCase().includes(textSearch.query.toLocaleLowerCase()))
       .slice(offset, offset + limit);
   }
   async get(table: TableName, id: string): Promise<Row | null> {
@@ -204,6 +204,7 @@ describe("Cafe API", () => {
     expect(response.json().data.purchase).toMatchObject({
       green_coffee_lot_id: response.json().data.green_coffee_lot.id,
       received_weight_kg: "20.000",
+      status: "confirmed",
     });
     expect(store.rows.purchases).toHaveLength(1);
     expect(store.rows.green_coffee_lots).toHaveLength(1);
@@ -302,11 +303,202 @@ describe("Cafe API", () => {
     expect(response.json().data.currency).toBe("MXN");
   });
 
+  it("updates and confirms a draft purchase in one request", async () => {
+    const store = new MemoryStore();
+    const providerId = crypto.randomUUID();
+    const lotId = crypto.randomUUID();
+    const purchaseId = crypto.randomUUID();
+    store.rows.providers.push({ id: providerId, name: "Test" });
+    store.rows.green_coffee_lots.push({ id: lotId, name: "Lot", variety: "typica" });
+    store.rows.purchases.push({
+      id: purchaseId,
+      provider_id: providerId,
+      green_coffee_lot_id: lotId,
+      received_weight_kg: "1.000",
+      total_amount: null,
+      currency: "MXN",
+      status: "draft",
+    });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: `/v1/purchases/${purchaseId}/confirm`,
+      headers: { authorization: "Bearer test-api-token" },
+      payload: {
+        provider_id: providerId,
+        green_coffee_lot_id: lotId,
+        purchased_at: null,
+        received_weight_kg: "12.500",
+        total_amount: "1875.00",
+        currency: "MXN",
+        payment_method: " TRANSFERENCIA ",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      status: "confirmed",
+      purchased_at: null,
+      received_weight_kg: "12.500",
+      total_amount: "1875.00",
+      payment_method: "transferencia",
+    });
+  });
+
+  it("aggregates purchases, subtracts prior roasts, and blocks excess green input", async () => {
+    const store = new MemoryStore();
+    const lotId = crypto.randomUUID();
+    store.rows.green_coffee_lots.push({
+      id: lotId,
+      name: "Cosecha 2026",
+      variety: "bourbon",
+    });
+    store.rows.purchases.push(
+      {
+        id: crypto.randomUUID(),
+        green_coffee_lot_id: lotId,
+        received_weight_kg: "10.000",
+        status: "confirmed",
+      },
+      {
+        id: crypto.randomUUID(),
+        green_coffee_lot_id: lotId,
+        received_weight_kg: "5.000",
+        status: "confirmed",
+      },
+    );
+    store.rows.roast_batches.push({
+      id: crypto.randomUUID(),
+      green_coffee_lot_id: lotId,
+      green_input_kg: "4.000",
+      roasted_output_kg: "3.400",
+      status: "confirmed",
+    });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+    const headers = { authorization: "Bearer test-api-token" };
+
+    const exactRemainder = await app.inject({
+      method: "POST",
+      url: "/v1/roast-batches/confirmed",
+      headers,
+      payload: {
+        green_coffee_lot_id: lotId,
+        roasted_at: "2026-09-16T15:30:00.000Z",
+        green_input_kg: "11.000",
+        roasted_output_kg: "9.400",
+      },
+    });
+    expect(exactRemainder.statusCode).toBe(201);
+    expect(exactRemainder.json().data).toMatchObject({
+      green_input_kg: "11.000",
+      status: "confirmed",
+    });
+
+    const excess = await app.inject({
+      method: "POST",
+      url: "/v1/roast-batches/confirmed",
+      headers,
+      payload: {
+        green_coffee_lot_id: lotId,
+        roasted_at: "2026-09-16T16:30:00.000Z",
+        green_input_kg: "0.001",
+        roasted_output_kg: "0.001",
+      },
+    });
+    expect(excess.statusCode).toBe(422);
+    expect(excess.json().error).toMatchObject({
+      code: "INSUFFICIENT_GREEN_COFFEE",
+      requested_kg: 0.001,
+      available_kg: 0,
+    });
+    expect(store.rows.roast_batches).toHaveLength(2);
+  });
+
+  it("excludes the roast being edited from its inventory calculation", async () => {
+    const store = new MemoryStore();
+    const lotId = crypto.randomUUID();
+    const roastId = crypto.randomUUID();
+    store.rows.green_coffee_lots.push({ id: lotId, name: "Lot", variety: "typica" });
+    store.rows.purchases.push({
+      id: crypto.randomUUID(),
+      green_coffee_lot_id: lotId,
+      received_weight_kg: "10.000",
+      status: "confirmed",
+    });
+    store.rows.roast_batches.push({
+      id: roastId,
+      green_coffee_lot_id: lotId,
+      green_input_kg: "6.000",
+      roasted_output_kg: "5.000",
+      status: "confirmed",
+    });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: `/v1/roast-batches/${roastId}/confirm`,
+      headers: { authorization: "Bearer test-api-token" },
+      payload: {
+        green_coffee_lot_id: lotId,
+        roasted_at: "2026-09-16T15:30:00.000Z",
+        green_input_kg: "8.000",
+        roasted_output_kg: "6.800",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      green_input_kg: "8.000",
+      roasted_output_kg: "6.800",
+      status: "confirmed",
+    });
+  });
+
   it("serves generated OpenAPI JSON", async () => {
     const app = await buildApp({ config, store: new MemoryStore(), logger: false });
     apps.push(app);
     const response = await app.inject({ method: "GET", url: "/openapi.json" });
     expect(response.statusCode).toBe(200);
     expect(response.json().info.title).toBe("Cafe OS API");
+  });
+
+  it("searches display names without resolving ambiguous matches", async () => {
+    const store = new MemoryStore();
+    const cafeSierraId = crypto.randomUUID();
+    store.rows.providers.push(
+      { id: cafeSierraId, name: "Café Sierra" },
+      { id: crypto.randomUUID(), name: "Sierra Verde" },
+      { id: crypto.randomUUID(), name: "Costa Sur" },
+    );
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/providers?name=Sierra",
+      headers: { authorization: "Bearer test-api-token" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toHaveLength(2);
+    expect(response.json().meta).toMatchObject({
+      match_count: 2,
+      exact_match_count: 0,
+      exact_match_ids: [],
+      applied_filters: { name: "Sierra" },
+    });
+    const exact = await app.inject({
+      method: "GET",
+      url: "/v1/providers?name=Caf%C3%A9%20Sierra",
+      headers: { authorization: "Bearer test-api-token" },
+    });
+    expect(exact.statusCode).toBe(200);
+    expect(exact.json().meta).toMatchObject({
+      match_count: 1,
+      exact_match_count: 1,
+      exact_match_ids: [cafeSierraId],
+    });
   });
 });

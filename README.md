@@ -1,6 +1,6 @@
 # Cafe OS
 
-Headless Hermes Agent deployment for a small coffee-roasting operation. The public prototype works through Telegram, routes inference through OpenRouter, and transcribes voice notes.
+Headless Hermes Agent deployment for a small coffee-roasting operation. The private operations prototype works through Telegram, routes inference through OpenRouter, and transcribes voice notes.
 
 The Hermes runtime is deliberately installed outside this repository at `~/.hermes`. This repo contains the reproducible configuration, operating instructions, and business notes; credentials and conversation state stay outside Git.
 
@@ -12,21 +12,23 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - Any future trusted terminal workflow runs in a Docker sandbox with only this repository mounted and container networking disabled.
 - Speech-to-text is enabled with the local provider.
 - Telegram uses Hermes' built-in adapter; Discord is disabled for the prototype.
-- Telegram accepts messages from any user. Its public toolset excludes shell, file-write, cron, messaging, and shared-memory access.
-- Remote admin slash commands are disabled; public users receive only the documented safe command set.
+- Telegram accepts messages only from explicitly allowlisted operator IDs. Shell, file-write, cron, messaging, and shared-memory access remain disabled.
+- Telegram emits only the final conversational response; tool progress, reasoning, interim narration, and streaming drafts are hidden.
+- Remote admin slash commands are disabled; allowlisted operators receive only the documented safe command set.
 - The gateway runs as an enabled per-user systemd service and starts automatically at boot.
 - A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema and invite-only email Auth.
 - The TypeScript Cafe API and authenticated React operations UI are served on `127.0.0.1:8100`.
-- A nine-tool TypeScript MCP adapter and guarded Hermes operations skill are implemented but are not connected to the public Hermes toolset.
+- A ten-tool TypeScript MCP adapter, exact pending-confirmation store, and guarded Hermes operations skill are connected to the allowlisted Telegram profile. The main model receives the full Cafe catalog; the optional DeepSeek Flash intent router remains available for controlled evals. General-purpose tools remain disabled.
 
 ## Finish setup
 
 1. Read [Headless deployment](docs/headless-deployment.md).
-2. Add the two required secrets without placing them in this repository:
+2. Add the required private settings without placing them in this repository:
 
    ```bash
    hermes config set OPENROUTER_API_KEY '...'
    hermes config set TELEGRAM_BOT_TOKEN '...'
+   hermes config set TELEGRAM_ALLOWED_USERS '123456789'
    ```
 
 3. Validate, install, and start the service:
@@ -69,4 +71,4 @@ The user service plus systemd lingering is intentional on this headless host: it
 
 ## Security defaults
 
-Telegram is deliberately public for this prototype. Keep its reduced toolset and slash-command gate in place, monitor OpenRouter spend, and never add terminal, file, cron, messaging, or memory tools while anonymous access is enabled. The configured admin ID `0` is a deliberate no-user sentinel; administer Hermes over SSH until it is replaced with a real trusted Telegram user ID. Do not enable Hermes YOLO mode, a host-local terminal backend, or unrestricted Docker networking.
+Telegram is restricted to explicit numeric user IDs because it can access operational records. Keep the reduced toolset, two-stage write confirmations, and slash-command gate in place, and monitor OpenRouter spend. The configured admin ID `0` remains a deliberate no-user sentinel; administer Hermes over SSH unless a separate admin decision is made. Do not enable Hermes YOLO mode, a host-local terminal backend, or unrestricted Docker networking.

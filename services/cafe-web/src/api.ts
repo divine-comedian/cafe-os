@@ -69,6 +69,14 @@ export class CafeApi {
     return response.data;
   }
 
+  async update<T>(path: string, payload: Record<string, unknown>, method: "PATCH" | "PUT" = "PATCH"): Promise<T> {
+    const response = await this.request<ApiEnvelope<T>>(`/v1/${path}`, {
+      method,
+      body: JSON.stringify(payload),
+    });
+    return response.data;
+  }
+
   async action<T>(path: string): Promise<T> {
     const response = await this.request<ApiEnvelope<T>>(`/v1/${path}`, {
       method: "POST",
