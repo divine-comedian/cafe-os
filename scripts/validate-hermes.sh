@@ -48,6 +48,14 @@ check_command ffmpeg
 check_env_value OPENROUTER_API_KEY
 check_env_value TELEGRAM_BOT_TOKEN
 check_env_value TELEGRAM_ALLOW_ALL_USERS
+check_env_value TELEGRAM_ALLOWED_USERS
+check_env_value CAFE_API_TOKEN
+if grep -Eq '^TELEGRAM_ALLOW_ALL_USERS=false$' "${HERMES_HOME:-$HOME/.hermes}/.env"; then
+  printf 'ok   Telegram public access disabled\n'
+else
+  printf 'FAIL TELEGRAM_ALLOW_ALL_USERS must be false\n' >&2
+  failure=1
+fi
 check_qwen_budget_policy
 
 if command -v hermes >/dev/null 2>&1; then

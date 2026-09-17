@@ -60,15 +60,15 @@ mcp_servers:
       CAFE_MCP_UPLOAD_ROOTS: "${userHome}/.hermes/cache"
       CAFE_MCP_STATE_DIR: "${userHome}/.hermes/state/cafe-mcp"
       CAFE_MCP_CONTEXT_ID: "cafe-operations"
-    trust: untrusted
+    trust: full
     tools:
       resources: false
       prompts: false
 ```
 
-Store `CAFE_API_TOKEN` in that profile's `.env`, not in `config.yaml` or git. `trust: untrusted` makes Hermes request approval for every tool lacking `readOnlyHint: true`, adding a runtime gate around database writes.
+Store `CAFE_API_TOKEN` in that profile's `.env`, not in `config.yaml` or git. `trust: full` permits the adapter to execute its own two-stage mutation protocol: the first call stores an exact pending proposal without changing business data, and only a second call carrying its opaque confirmation ID can execute it. The Telegram profile must remain restricted to trusted operator IDs.
 
-Do not add this MCP server to the current public Telegram profile. Create a private operations profile first, then enable the server there. After configuration, run:
+The deployed Telegram profile is private and allowlisted, so it may enable this server while keeping every general-purpose toolset disabled. After configuration, run:
 
 ```bash
 hermes mcp test cafe_os

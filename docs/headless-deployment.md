@@ -10,7 +10,7 @@ From the repository root:
 ./scripts/bootstrap-hermes.sh
 ```
 
-The script skips provisioning Playwright/Chromium, desktop computer-use support, and the interactive wizard. Browser and desktop-control toolsets are not exposed to the messaging agents. The public Telegram agent supports text, images, voice-note transcription, skills, lightweight task planning, web access, and TTS. Host shell, repository files, cron, messaging, and shared-memory tools are intentionally withheld.
+The script skips provisioning Playwright/Chromium, desktop computer-use support, and the interactive wizard. The private Telegram agent supports text, images, voice-note transcription, and the Cafe OS MCP toolbelt. General web, browser, shell, repository file, cron, messaging, memory, and delegation tools are intentionally withheld.
 
 The Docker sandbox remains configured for future trusted workflows, with only this repository mounted and container networking disabled. The gateway process itself retains outbound access for Telegram, OpenRouter, and configured tool providers.
 
@@ -32,17 +32,18 @@ hermes config set model.default 'provider/model-id'
 
 1. In Telegram, open [@BotFather](https://t.me/BotFather) and run `/newbot`.
 2. Choose a display name and a unique username ending in `bot`.
-3. Store the token:
+3. Store the token and the numeric Telegram user IDs permitted to operate Cafe OS:
 
    ```bash
    hermes config set TELEGRAM_BOT_TOKEN '123456789:...'
+   hermes config set TELEGRAM_ALLOWED_USERS '123456789'
    ```
 
-4. Public access is configured by the bootstrap script with `TELEGRAM_ALLOW_ALL_USERS=true`; no user allowlist is required.
+4. The bootstrap forces `TELEGRAM_ALLOW_ALL_USERS=false`. Without a non-empty allowlist, the gateway denies all Telegram users.
 
-Anyone who discovers the bot can consume model quota. Keep Telegram's reduced public toolset in place and monitor OpenRouter usage. For group use, BotFather privacy mode can remain enabled if the bot should respond only to commands, mentions, and replies.
+Only allowlisted IDs can consume model quota or access Cafe OS operations. For group use, BotFather privacy mode can remain enabled if the bot should respond only to commands, mentions, and replies.
 
-The bootstrap also gates slash commands. Public users can use `/help`, `/whoami`, `/status`, `/new`, `/reset`, `/usage`, `/voice`, and `/stop`; privileged commands are unavailable. Admin ID `0` is an intentional sentinel that matches no Telegram user, so administration remains SSH-only. To appoint a Telegram administrator later, replace `0` in both `allow_admin_from` settings with that trusted account's numeric user ID.
+The bootstrap also gates slash commands. Allowlisted operators can use `/help`, `/whoami`, `/status`, `/new`, `/reset`, `/usage`, `/voice`, and `/stop`; privileged commands are unavailable. Admin ID `0` is an intentional sentinel that matches no Telegram user, so administration remains SSH-only. To appoint a Telegram administrator later, replace `0` in both `allow_admin_from` settings with that trusted account's numeric user ID.
 
 ## 4. Voice notes
 
@@ -78,8 +79,8 @@ The user service plus lingering survives logout and starts at boot. Avoid instal
 ## 6. Smoke test
 
 1. Send the Telegram bot `/status`, then send a short Spanish or English voice memo.
-2. Repeat from a second Telegram account and confirm it can interact without pairing or an allowlist.
-3. Ask the bot what tools it has and confirm shell, file, cron, messaging, and memory tools are absent.
+2. Repeat from a non-allowlisted Telegram account and confirm access is denied.
+3. Ask the bot what tools it has and confirm Cafe OS tools are present while shell, file, web, cron, messaging, and memory tools are absent.
 4. Check OpenRouter usage after the test.
 
 ## 7. Operating commands

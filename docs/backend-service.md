@@ -2,7 +2,7 @@
 
 The Cafe OS backend is a TypeScript/Fastify service at `services/cafe-api/`. It is the only application component that holds the Supabase service credential. Hermes must interact with this service rather than connecting directly to Postgres or Supabase Storage.
 
-The service listens on `127.0.0.1:8100`. It is not exposed publicly and is not currently registered as a tool provider for the public Telegram agent.
+The service listens on `127.0.0.1:8100`. It is not exposed publicly. The local Cafe MCP adapter connects it to the allowlisted Telegram operations agent; Hermes never connects directly to Supabase.
 
 ## Operations
 
@@ -93,4 +93,4 @@ npm run build
 npm audit --omit=dev
 ```
 
-Do not add this API to the public Telegram toolset. The Hermes toolbelt will be designed separately with a small, clearly named function surface and enabled only for a trusted operations profile.
+Expose this API to Hermes only through the small Cafe MCP surface and only on an allowlisted operations profile. Do not grant the Telegram profile direct SQL, Supabase service credentials, shell, or general file access.
