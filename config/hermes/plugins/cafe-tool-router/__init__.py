@@ -16,11 +16,24 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from collections import OrderedDict
 from typing import Any
 
 _CAFE_PREFIX = "mcp__cafe_os__"
+_VOICE_VOCABULARY_PREFIX = "mcp__voice_vocabulary__"
+_AUTHORIZED_PREFIXES = (_CAFE_PREFIX, _VOICE_VOCABULARY_PREFIX)
 _DISCOVERY = "discover_tools"
+_PRIMARY_PROVIDER = "openrouter"
+_PRIMARY_MODEL = "qwen/qwen3.8-flash"
+_RATE_LIMIT_CODES = {"rate_limit", "rate_limited", "rate_limit_exceeded", "resource_exhausted", "throttled"}
+_MODEL_UNAVAILABLE_CODES = {"model_not_found", "model_not_available", "invalid_model"}
+_AVAILABILITY_STATUS_CODES = {408, 429, 500, 502, 503, 504, 524, 529}
+_TRANSPORT_ERROR_TYPES = {
+    "APIConnectionError", "APITimeoutError", "ConnectError", "ConnectTimeout",
+    "ConnectionError", "ConnectionResetError", "PoolTimeout", "ReadError", "ReadTimeout",
+    "RemoteProtocolError", "ServerDisconnectedError", "TimeoutError",
+}
 
 
 def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -38,13 +51,19 @@ _FULL_CATALOG_HOP_CAP = _bounded_env_int("CAFE_FULL_CATALOG_HOP_CAP", 20, 2, 20)
 _PROPOSAL_REQUIRED = {
     "create_provider": ["name"],
     "create_purchase": ["provider_id", "green_coffee_lot_id", "received_weight_kg"],
-    "create_green_coffee_lot": ["name", "variety"],
+    "create_green_coffee_lot": ["name"],
     "create_roast_batch": ["green_coffee_lot_id"],
     "update_record": ["resource", "id", "fields"],
     "set_record_status": ["resource", "id", "status"],
     "delete_record": ["resource", "id"],
     "upload_purchase_document": ["purchase_id", "file_path"],
+    "remove_entry": ["term"],
 }
+_CHAINABLE_WRITES = {
+    "create_provider", "create_purchase", "create_green_coffee_lot", "create_roast_batch",
+    "update_record", "upload_purchase_document",
+}
+_MAX_APPROVED_CHAIN_WRITES = 8
 _MAX_STATES = 256
 _LOCK = threading.RLock()
 _STATES: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
@@ -192,6 +211,37 @@ def _structured_result(result: Any) -> dict[str, Any]:
     return structured if isinstance(structured, dict) else value
 
 
+def _latest_user_text(messages: Any) -> str:
+    latest = ""
+    if isinstance(messages, list):
+        for message in messages:
+            if isinstance(message, dict) and message.get("role") == "user":
+                latest = str(message.get("content") or "")
+    return " ".join(latest.casefold().split())
+
+
+def _is_explicit_approval(messages: Any) -> bool:
+    latest = _latest_user_text(messages)
+    if not latest:
+        return False
+    if re.search(
+        r"\b(?:no|not|do not|don't|dont|wait|stop|cancel|decline|nope|nah|"
+        r"todav[ií]a no|espera|alto|detente|cancela|rechazo|no lo hagas)\b",
+        latest,
+    ):
+        return False
+    return bool(re.search(
+        r"(?:\bconfirm(?:ed|o|ado|ada)?\b|\bapprove(?:d)?\b|\bapproved\b|"
+        r"\bi approve\b|\byes\b|\byep\b|\byeah\b|\bship it\b|\bdo it\b|"
+        r"\bgo ahead\b|\bproceed\b|\bsave it\b|\bsave them\b|\bsave all\b|"
+        r"\bdelete it\b|\bremove it\b|\bvoid it\b|"
+        r"\bs[ií]\b|\bapruebo\b|\baprobado\b|\bdale\b|\bhazlo\b|"
+        r"\badelante\b|\bprocede\b|\bgu[aá]rdalo\b|\bguarda todo\b|"
+        r"\belim[ií]nalo\b|\bb[oó]rralo\b|\ban[uú]lalo\b)",
+        latest,
+    ))
+
+
 def _activated_from_messages(messages: Any) -> set[str]:
     activated: set[str] = set()
     if not isinstance(messages, list):
@@ -220,12 +270,7 @@ def _activated_from_messages(messages: Any) -> set[str]:
 def _pending_from_messages(messages: Any) -> tuple[str, str] | None:
     if not isinstance(messages, list):
         return None
-    latest_user = ""
-    for message in messages:
-        if isinstance(message, dict) and message.get("role") == "user":
-            latest_user = str(message.get("content") or "").strip().lower()
-    confirmation_words = ("confirm", "sí", "si,", "yes", "approved", "apruebo", "guarda", "save", "void", "delete")
-    if not any(word in latest_user for word in confirmation_words):
+    if not _is_explicit_approval(messages):
         return None
     closed_tools: set[str] = set()
     for message in reversed(messages):
@@ -259,13 +304,16 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     tools = request.get("tools")
     if not isinstance(tools, list):
         tools = []
-    cafe_tools = { _short_name(name): tool for tool in tools if (name := _tool_name(tool)).startswith(_CAFE_PREFIX) }
+    authorized_tools = {
+        _short_name(name): tool for tool in tools
+        if (name := _tool_name(tool)).startswith(_AUTHORIZED_PREFIXES)
+    }
     state = _state(session_id, turn_id)
     if state is None:
         pending_context = _pending_from_messages(request.get("messages"))
         pending_tool = pending_context[0] if pending_context else None
         full_catalog = not pending_context and _visibility_mode() == "full"
-        if pending_tool in cafe_tools:
+        if pending_tool in authorized_tools:
             routed = {
                 "ok": True,
                 "intent": "confirm_pending_operation",
@@ -279,7 +327,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             routed = {
                 "ok": True,
                 "intent": "full_catalog",
-                "toolIds": sorted(name for name in cafe_tools if name != _DISCOVERY),
+                "toolIds": sorted(name for name in authorized_tools if name != _DISCOVERY),
                 "confidence": 1,
                 "model": "full-catalog",
                 "durationMs": 0,
@@ -289,8 +337,10 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             routed = _route(request, api_request_id)
         selected = {
             value for value in routed.get("toolIds", [])
-            if isinstance(value, str) and value in cafe_tools and value != _DISCOVERY
+            if isinstance(value, str) and value in authorized_tools and value != _DISCOVERY
         }
+        if not full_catalog and "create_provider" in selected and "query_records" in authorized_tools:
+            selected.add("query_records")
         missing_required_fields = {
             value for value in routed.get("missingRequiredFields", [])
             if isinstance(value, str)
@@ -312,8 +362,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         if fallback:
             selected = set()
         kinds = {
-            short: ("read" if short in {_DISCOVERY, "query_records"} else "write")
-            for short in cafe_tools
+            short: ("read" if short in {_DISCOVERY, "query_records", "list_entries"} else "write")
+            for short in authorized_tools
         }
         state = {
             "selected": selected,
@@ -326,6 +376,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "kinds": kinds,
             "pending_ids": {pending_context[1]} if pending_context else set(),
             "pending_bypass": bool(pending_context),
+            "approval_chain": bool(pending_tool in _CHAINABLE_WRITES),
+            "approval_writes": 0,
             "full_catalog": full_catalog,
             "discovery_used": False,
             "pending_prepared": False,
@@ -339,6 +391,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "duplicate_calls": 0,
             "post_write_reads": 0,
             "resolved_ids": {},
+            "provider_catalog_loaded": False,
+            "provider_catalog": [],
             "missing_required_fields": missing_required_fields,
             "blocking_missing_fields": requires_user_input,
             "lookup_resource": lookup_resource,
@@ -370,7 +424,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             fallback_reason=routed.get("fallbackReason"),
         )
 
-    newly_activated = ((_activated_from_messages(request.get("messages")) & set(cafe_tools))
+    newly_activated = ((_activated_from_messages(request.get("messages")) & set(authorized_tools))
                        - set(state.get("activated", set()))
                        if not state.get("pending_bypass") and not state.get("full_catalog") else set())
     if newly_activated:
@@ -381,7 +435,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
 
     selected = set(state["selected"])
     if state.get("full_catalog"):
-        visible = set(cafe_tools)
+        visible = set(authorized_tools)
     else:
         visible = selected | ({_DISCOVERY} if not state.get("pending_bypass")
                               and not state.get("blocking_missing_fields")
@@ -409,7 +463,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     else:
         terminal_reason = "active"
 
-    filtered = [tool for short, tool in cafe_tools.items() if short in visible]
+    filtered = [tool for short, tool in authorized_tools.items() if short in visible]
     lookup_resource = str(state.get("lookup_resource") or "unknown")
     if lookup_resource != "unknown" and "query_records" in visible:
         constrained = []
@@ -481,7 +535,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         messages.append({
             "role": "system",
             "content": (
-                "The Cafe OS tool phase for this user turn is closed. Return the final answer now "
+                "The authorized local-tool phase for this user turn is closed. Return the final answer now "
                 "without any tool call. Match the language of the latest user message. If a proposal "
                 "is pending, show its exact fields with units on every operational number (for example, "
                 "12 kg and 705 s) and ask for confirmation; if execution failed, report only the "
@@ -508,15 +562,44 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         name for name in visible
         if state.get("kinds", {}).get(name) == "write"
     )
+    provider_write_active = bool({"create_provider", "create_purchase"} & set(active_writes)) \
+        or (lookup_resource == "provider" and bool(active_writes))
+    if provider_write_active and not state.get("pending_bypass"):
+        messages.append({
+            "role": "system",
+            "content": (
+                "Before this provider-related write, call query_records with resource=provider, limit=100, "
+                "offset=0, and no name or id filter so you can compare the user's wording with the complete "
+                "provider catalog. Treat 'from NAME' or Spanish 'de NAME'/'a NAME' in a purchase as a provider "
+                "reference unless the operator explicitly labels it as a lot. If a catalog name is semantically "
+                "similar but not exact, ask whether the operator means that existing provider and stop without "
+                "preparing a mutation. After confirmation, use the existing provider for the requested proposal; "
+                "never create a near-duplicate provider."
+            ),
+        })
     if state.get("full_catalog") and active_writes:
         messages.append({
             "role": "system",
             "content": (
-                "The complete Cafe OS tool catalog is available. Choose only the tools needed for the "
+                "The complete authorized local tool catalog is available. Choose only the tools needed for the "
                 "user's request. Do not call a mutation tool for a read-only request. For a requested "
                 "write, resolve stored names or UUIDs first when necessary, and call exactly one appropriate "
-                "mutation tool only after every schema-required field is known. Its pending_confirmation "
-                "result is the only proposal you may present; never ask for confirmation from prose alone."
+                "mutation tool only after every schema-required field is known. Cafe OS mutations and "
+                "voice-vocabulary removal return pending_confirmation and require later approval; "
+                "voice-vocabulary upsert_entry executes immediately and must not ask for confirmation. "
+                "When one request needs multiple related non-destructive writes, the confirmation prompt must "
+                "list every planned write and all known fields. Tell the operator that one confirmation covers "
+                "that complete listed workflow. Deletes and roast status changes are excluded and must "
+                "always be confirmed separately."
+            ),
+        })
+    elif active_writes == ["upsert_entry"] and not state.get("pending_bypass"):
+        messages.append({
+            "role": "system",
+            "content": (
+                "The active voice-vocabulary upsert executes immediately without confirmation. "
+                "Call it only when the operator states a durable term or after resolving an exact Cafe entity; "
+                "never learn solely from an unverified transcript suggestion."
             ),
         })
     elif active_writes and not state.get("pending_bypass"):
@@ -527,6 +610,18 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
                 "proposal fields. Do not merely describe a draft or ask for confirmation from prose. "
                 "Call exactly one appropriate active mutation tool now after any required lookups; its "
                 "pending_confirmation result is the only proposal you may present."
+            ),
+        })
+    if state.get("approval_chain") and not state.get("pending_bypass"):
+        messages.append({
+            "role": "system",
+            "content": (
+                "The operator's latest explicit confirmation authorizes the complete non-destructive workflow "
+                "that was already listed in the preceding confirmation prompt. Continue now until every listed "
+                "create, update, or evidence-upload action is complete, without asking again. Use only facts and "
+                "fields already present in the conversation. Do not extend this approval to a delete, a roast "
+                "status transition, an unlisted action, or a new user request. If no listed action "
+                "remains, stop and return the concise final result."
             ),
         })
     if state.get("blocking_missing_fields"):
@@ -587,10 +682,27 @@ def _canonical_signature(tool_name: str, args: Any) -> str:
     return hashlib.sha256((tool_name + "\n" + raw).encode("utf-8")).hexdigest()
 
 
+def _normalized_display_name(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    decomposed = unicodedata.normalize("NFKD", value)
+    plain = "".join(character for character in decomposed if not unicodedata.combining(character))
+    return " ".join(plain.casefold().split())
+
+
+def _provider_write_requires_catalog(short: str, args: Any) -> bool:
+    if not isinstance(args, dict) or isinstance(args.get("confirmation_id"), str):
+        return False
+    if short in {"create_provider", "create_purchase"}:
+        return True
+    return short in {"update_record", "set_record_status", "delete_record"} \
+        and args.get("resource") == "provider"
+
+
 def _pre_tool_call(*, tool_name: str = "", args: Any = None, session_id: str = "",
                    turn_id: str = "", **_: Any) -> dict[str, str] | None:
-    if not tool_name.startswith(_CAFE_PREFIX):
-        return {"action": "block", "message": "POLICY_NON_CAFE_TOOL: only Cafe OS tools are authorized."}
+    if not tool_name.startswith(_AUTHORIZED_PREFIXES):
+        return {"action": "block", "message": "POLICY_UNAUTHORIZED_TOOL: only Cafe OS and voice-vocabulary tools are authorized."}
     state = _state(session_id, turn_id)
     if state is None:
         return {"action": "block", "message": "POLICY_MISSING_TURN_STATE: retry the Cafe request."}
@@ -599,6 +711,33 @@ def _pre_tool_call(*, tool_name: str = "", args: Any = None, session_id: str = "
         return {"action": "block", "message": "POLICY_UNKNOWN_TOOL: the Cafe tool is not in the authorized catalog."}
     if short not in state.get("visible", set()):
         return {"action": "block", "message": "POLICY_INACTIVE_TOOL: the tool phase is closed or this tool is not active."}
+    if (not state.get("pending_bypass")
+            and _provider_write_requires_catalog(short, args)
+            and not state.get("provider_catalog_loaded")):
+        return {
+            "action": "block",
+            "message": (
+                "POLICY_PROVIDER_CATALOG_REQUIRED: before any provider-related proposal, call "
+                "query_records with resource=provider, limit=100, offset=0, and no name or id filter. "
+                "Compare the requested name with every returned provider. If a similar provider may be "
+                "the intended record, ask the operator to confirm it and do not prepare a mutation yet."
+            ),
+        }
+    if short == "create_provider" and isinstance(args, dict):
+        requested = _normalized_display_name(args.get("name"))
+        exact = next((row for row in state.get("provider_catalog", [])
+                      if _normalized_display_name(row.get("name")) == requested), None)
+        if requested and isinstance(exact, dict):
+            display_name = str(exact.get("name") or args.get("name"))
+            region = str(exact.get("region") or "").strip()
+            suffix = f" ({region})" if region else ""
+            return {
+                "action": "block",
+                "message": (
+                    f"POLICY_PROVIDER_ALREADY_EXISTS: provider {display_name}{suffix} is already in Cafe OS. "
+                    "Use that existing provider for the requested operation; do not create a duplicate."
+                ),
+            }
     if state.get("full_catalog") and not state.get("pending_bypass") and isinstance(args, dict):
         references: list[tuple[str, str]] = []
         resource = str(args.get("resource") or "")
@@ -657,7 +796,7 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                     session_id: str = "", turn_id: str = "", duration_ms: int = 0,
                     error_type: str = "", **_: Any) -> None:
     state = _state(session_id, turn_id)
-    if state is None or not tool_name.startswith(_CAFE_PREFIX):
+    if state is None or not tool_name.startswith(_AUTHORIZED_PREFIXES):
         return
     text = result if isinstance(result, str) else json.dumps(result, default=str)
     state["tool_result_chars"] = int(state.get("tool_result_chars", 0)) + len(text)
@@ -665,6 +804,7 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
     signature = _canonical_signature(tool_name, args)
     short = _short_name(tool_name)
     confirmation_id = args.get("confirmation_id") if isinstance(args, dict) else None
+    structured_result = _structured_result(result)
     if success:
         state["successful"].add(signature)
         if short == _DISCOVERY:
@@ -675,12 +815,40 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                 state["stop_tools"] = True
                 state["terminal_reason"] = "needs_confirmation"
                 _event("confirmation_suspend", session_id=session_id, turn_id=turn_id, tool=short)
+            elif (state.get("approval_chain") and short in _CHAINABLE_WRITES
+                  and isinstance(structured_result.get("operation_receipt"), dict)):
+                receipt = structured_result["operation_receipt"]
+                resource = str(receipt.get("resource") or "")
+                record_id = receipt.get("id")
+                if resource and isinstance(record_id, str):
+                    state.setdefault("resolved_ids", {}).setdefault(resource, set()).add(record_id)
+                state["approval_writes"] = int(state.get("approval_writes", 0)) + 1
+                state["pending_bypass"] = False
+                state["pending_ids"] = set()
+                state["pending_prepared"] = False
+                state["write_succeeded"] = False
+                state["full_catalog"] = True
+                state["work_hop_cap"] = _FULL_CATALOG_HOP_CAP
+                state["stop_tools"] = state["approval_writes"] >= _MAX_APPROVED_CHAIN_WRITES
+                state["terminal_reason"] = "approval_chain_limit" if state["stop_tools"] else None
+                state["phase_instruction"] = (
+                    "The last approved write succeeded. Continue every remaining non-destructive action that "
+                    "was already listed in the operator-approved workflow. Do not ask for another confirmation. "
+                    "If the approved workflow is complete, return the final result now."
+                )
+                _event(
+                    "approval_chain_write",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    tool=short,
+                    count=state["approval_writes"],
+                )
             else:
                 state["write_succeeded"] = True
                 state["stop_tools"] = True
                 state["terminal_reason"] = "completed"
         elif short == "query_records":
-            structured = _structured_result(result)
+            structured = structured_result
             meta = structured.get("meta")
             if not isinstance(meta, dict) and isinstance(structured.get("data"), dict):
                 nested_meta = structured["data"].get("meta")
@@ -693,6 +861,19 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                 if isinstance(args, dict) else str(state.get("lookup_resource") or "")
             data = structured.get("data")
             rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+            if (queried_resource == "provider" and isinstance(args, dict)
+                    and not args.get("id") and not args.get("name")):
+                state["provider_catalog_loaded"] = True
+                state["provider_catalog"] = [
+                    {key: row.get(key) for key in ("id", "name", "region") if row.get(key) is not None}
+                    for row in rows if isinstance(row, dict)
+                ]
+                _event(
+                    "provider_catalog_loaded",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    count=len(state["provider_catalog"]),
+                )
             returned_ids = {
                 str(row["id"]) for row in rows
                 if isinstance(row, dict) and isinstance(row.get("id"), str)
@@ -717,9 +898,11 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                   and isinstance(match_count, int) and match_count > 1 and exact_count != 1):
                 state["stop_tools"] = True
                 state["terminal_reason"] = "needs_clarification"
-            elif not state.get("full_catalog") and exact_count == 1 and any(name in state["selected"] for name in {
+            elif (not state.get("full_catalog")
+                  and (exact_count == 1 or (queried_resource == "provider" and state.get("provider_catalog_loaded")))
+                  and any(name in state["selected"] for name in {
                 "create_purchase", "create_green_coffee_lot", "create_roast_batch", "update_record", "delete_record"
-            }):
+            })):
                 remaining_lookups = [
                     resource for resource in state.get("lookup_resources", [])
                     if resource != queried_resource
@@ -822,17 +1005,75 @@ def _post_api_request(*, session_id: str = "", turn_id: str = "", usage: Any = N
         )
 
 
+def _transform_api_error_classification(*, provider: str = "", model: str = "",
+                                        status_code: Any = None, error_type: str = "",
+                                        error_code: str = "", error_message: str = "",
+                                        error_body: Any = None, **_: Any) -> dict[str, Any] | None:
+    """Keep the paid fallback as availability insurance, never as a quality retry."""
+    if provider.strip().lower() != _PRIMARY_PROVIDER or model.strip() != _PRIMARY_MODEL:
+        return None
+    try:
+        status = int(status_code) if status_code is not None else None
+    except (TypeError, ValueError):
+        status = None
+    code = str(error_code or "").strip().lower()
+    body = json.dumps(error_body if isinstance(error_body, dict) else {}, default=str).lower()
+    message = f"{error_message} {body}".lower()
+
+    if status == 429 or code in _RATE_LIMIT_CODES or "rate limit" in message or "rate_limit" in message:
+        return {
+            "reason": "rate_limit",
+            "retryable": True,
+            "should_rotate_credential": False,
+            "should_fallback": True,
+        }
+    model_unavailable = (
+        code in _MODEL_UNAVAILABLE_CODES
+        or any(signal in message for signal in (
+            "model not found", "model_not_found", "model not available", "model_not_available",
+            "no endpoints found that support tool use", "no such model", "unknown model",
+        ))
+    )
+    if model_unavailable:
+        return {"reason": "model_not_found", "retryable": False, "should_fallback": True}
+    if status in _AVAILABILITY_STATUS_CODES or error_type in _TRANSPORT_ERROR_TYPES:
+        reason = "timeout" if status in {408, 504, 524} or "Timeout" in error_type else \
+            "overloaded" if status in {503, 529} else "server_error"
+        return {"reason": reason, "retryable": True, "should_fallback": True}
+
+    if status == 413 or "context length" in message or "context_length" in message:
+        return {
+            "reason": "context_overflow",
+            "retryable": True,
+            "should_compress": True,
+            "should_fallback": False,
+        }
+    reason = (
+        "billing" if status == 402
+        else "auth_permanent" if status in {401, 403}
+        else "format_error" if status in {400, 404, 409, 422}
+        else "unknown"
+    )
+    return {
+        "reason": reason,
+        "retryable": False,
+        "should_compress": False,
+        "should_rotate_credential": False,
+        "should_fallback": False,
+    }
+
+
 def _tool_execution(*, tool_name: str = "", args: Any = None, next_call=None,
                     session_id: str = "", turn_id: str = "", **_: Any) -> Any:
-    if not tool_name.startswith(_CAFE_PREFIX):
+    if not tool_name.startswith(_AUTHORIZED_PREFIXES):
         _event(
             "tool_blocked",
             session_id=session_id,
             turn_id=turn_id,
             tool="non_cafe",
-            error_code="POLICY_NON_CAFE_TOOL",
+            error_code="POLICY_UNAUTHORIZED_TOOL",
         )
-        return json.dumps({"error": "POLICY_NON_CAFE_TOOL: only Cafe OS tools are authorized."})
+        return json.dumps({"error": "POLICY_UNAUTHORIZED_TOOL: only Cafe OS and voice-vocabulary tools are authorized."})
     effective_args = dict(args) if isinstance(args, dict) else args
     state = _state(session_id, turn_id)
     if (isinstance(effective_args, dict) and state is not None and state.get("pending_bypass")
@@ -872,7 +1113,26 @@ def _tool_execution(*, tool_name: str = "", args: Any = None, next_call=None,
                 field="resource",
                 value=lookup_resource,
             )
-    return next_call(effective_args) if callable(next_call) else json.dumps({"error": "POLICY_EXECUTION_UNAVAILABLE"})
+    if not callable(next_call):
+        return json.dumps({"error": "POLICY_EXECUTION_UNAVAILABLE"})
+    result = next_call(effective_args)
+    short = _short_name(tool_name)
+    is_proposal = isinstance(effective_args, dict) and not isinstance(effective_args.get("confirmation_id"), str)
+    if (state is not None and state.get("approval_chain") and is_proposal
+            and short in _CHAINABLE_WRITES
+            and int(state.get("approval_writes", 0)) < _MAX_APPROVED_CHAIN_WRITES):
+        structured = _structured_result(result)
+        pending = structured.get("pending_confirmation") if isinstance(structured, dict) else None
+        if (isinstance(pending, dict) and pending.get("tool_name") == short
+                and isinstance(pending.get("id"), str)):
+            _event(
+                "approval_chain_auto_confirm",
+                session_id=session_id,
+                turn_id=turn_id,
+                tool=short,
+            )
+            return next_call({"confirmation_id": pending["id"]})
+    return result
 
 
 def register(ctx) -> None:
@@ -881,3 +1141,4 @@ def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
     ctx.register_hook("post_api_request", _post_api_request)
+    ctx.register_hook("transform_api_error_classification", _transform_api_error_classification)

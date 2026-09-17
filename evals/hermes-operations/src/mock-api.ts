@@ -168,10 +168,15 @@ export class MockCafeApi {
     if (method === "POST" && !id) {
       const body = await readJson(request);
       const created: Row = { id: nextId(this.counter++), ...normalizeRow(table, body) };
-      if (table === "purchases" || table === "roast_batches") created.status = "draft";
+      if (table === "roast_batches") created.status = "draft";
       if (table === "purchases") {
         if (!("currency" in created)) created.currency = "MXN";
         created.document_path = null;
+      }
+      if (table === "green_coffee_lots") {
+        if (!("origin" in created)) created.origin = null;
+        if (!("variety" in created)) created.variety = null;
+        if (!("notes" in created)) created.notes = null;
       }
       this.state[table].push(created);
       this.operations.push({ method, path: url.pathname, body });
@@ -197,7 +202,8 @@ export class MockCafeApi {
       });
     }
 
-    if (method === "POST" && (action === "confirmed" || action === "void" || action === "confirm")) {
+    if (method === "POST" && table === "roast_batches"
+        && (action === "confirmed" || action === "void" || action === "confirm")) {
       row.status = action === "void" ? "void" : "confirmed";
       this.operations.push({ method, path: url.pathname });
       return json(response, 200, { data: row });

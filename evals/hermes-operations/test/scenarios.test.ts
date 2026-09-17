@@ -36,7 +36,7 @@ describe("scenario catalog", () => {
   it("covers incomplete requests, required follow-ups, and optional omissions", () => {
     expect(partialRequestScenarios).toHaveLength(8);
     expect(new Set(partialRequestScenarios.map((scenario) => scenario.id)).size).toBe(8);
-    expect(partialRequestScenarios.flatMap((scenario) => scenario.turns)).toHaveLength(22);
+    expect(partialRequestScenarios.flatMap((scenario) => scenario.turns)).toHaveLength(21);
     expect(partialRequestScenarios.some((scenario) => scenario.id.includes("voice_note"))).toBe(true);
     const turns = partialRequestScenarios.flatMap((scenario) => scenario.turns);
     expect(turns.some((turn) => (turn.expect.routerRequiresUserInput?.length ?? 0) > 0)).toBe(true);

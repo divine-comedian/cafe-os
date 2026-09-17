@@ -49,7 +49,7 @@ Containers use `restart: unless-stopped`, so the stack returns when Docker start
 Studio is deliberately not exposed to the public network. From a workstation, create an SSH tunnel:
 
 ```bash
-ssh -N -L 8000:127.0.0.1:8000 chaperzcommand@SERVER_IP
+ssh -N -L 8000:127.0.0.1:8000 YOUR_SSH_USER@SERVER_IP
 ```
 
 Then open `http://127.0.0.1:8000` in the workstation browser. Retrieve the generated Studio username/password directly on the server when needed:

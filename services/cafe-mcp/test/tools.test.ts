@@ -86,6 +86,68 @@ describe("Cafe OS MCP tools", () => {
     expect(api.calls).toHaveLength(0);
   });
 
+  it("prepares and creates a green-coffee lot without an optional variety", async () => {
+    const blankVariety = await client.callTool({
+      name: "create_green_coffee_lot",
+      arguments: { name: "Lote feria", origin: "Chiapas", variety: "" },
+    });
+    expect(blankVariety.isError).toBe(true);
+
+    const prepared = await client.callTool({
+      name: "create_green_coffee_lot",
+      arguments: { name: "Lote feria", origin: "Chiapas" },
+    });
+    expect(prepared.isError).not.toBe(true);
+    expect(api.calls).toHaveLength(0);
+    const confirmationId = ((prepared.structuredContent as Record<string, unknown> | undefined)
+      ?.pending_confirmation as Record<string, unknown>).id;
+
+    const saved = await client.callTool({
+      name: "create_green_coffee_lot",
+      arguments: { confirmation_id: confirmationId },
+    });
+    expect(saved.isError).not.toBe(true);
+    expect(api.calls).toEqual([{
+      method: "POST",
+      route: "/green-coffee-lots",
+      body: { name: "Lote feria", origin: "Chiapas" },
+    }]);
+  });
+
+  it("does not expose status on purchases or green-coffee lots", async () => {
+    const purchase = await client.callTool({
+      name: "create_purchase",
+      arguments: {
+        provider_id: "8cbfaf51-b489-4d2e-86a6-c31a9d726c24",
+        green_coffee_lot_id: "5b8eddb3-dbc2-4c48-b33d-f8acc512681a",
+        received_weight_kg: 20,
+        status: "confirmed",
+      },
+    });
+    const lot = await client.callTool({
+      name: "create_green_coffee_lot",
+      arguments: { name: "Lote activo", status: "confirmed" },
+    });
+    const purchaseStatus = await client.callTool({
+      name: "set_record_status",
+      arguments: {
+        resource: "purchase",
+        id: "11111111-1111-4111-8111-111111111111",
+        status: "confirmed",
+      },
+    });
+    const purchaseFilter = await client.callTool({
+      name: "query_records",
+      arguments: { resource: "purchase", status: "draft" },
+    });
+
+    expect(purchase.isError).toBe(true);
+    expect(lot.isError).toBe(true);
+    expect(purchaseStatus.isError).toBe(true);
+    expect(purchaseFilter.isError).toBe(true);
+    expect(api.calls).toHaveLength(0);
+  });
+
   it("combines exact lookup and filtered lists in one read tool", async () => {
     const providerId = "8cbfaf51-b489-4d2e-86a6-c31a9d726c24";
     api.responses.push(
@@ -106,7 +168,6 @@ describe("Cafe OS MCP tools", () => {
       arguments: {
         resource: "purchase",
         provider_id: providerId,
-        status: "draft",
         limit: 10,
         offset: 5,
       },
@@ -120,7 +181,7 @@ describe("Cafe OS MCP tools", () => {
       },
       {
         method: "GET",
-        route: `/purchases?limit=10&offset=5&provider_id=${providerId}&status=draft`,
+        route: `/purchases?limit=10&offset=5&provider_id=${providerId}`,
         body: undefined,
       },
     ]);
@@ -130,23 +191,23 @@ describe("Cafe OS MCP tools", () => {
     api.responses.push(
       {
         data: [],
-        meta: { match_count: 0, exact_match_count: 0, exact_match_ids: [], applied_filters: { name: "Choi" } },
+        meta: { match_count: 0, exact_match_count: 0, exact_match_ids: [], applied_filters: { name: "Moca Norte" } },
       },
       {
         data: [
-          { id: crypto.randomUUID(), name: "Chuy's Basement", region: "sonora" },
-          { id: crypto.randomUUID(), name: "Finca Norte", region: "veracruz" },
+          { id: crypto.randomUUID(), name: "Moka Norte", region: "sonora" },
+          { id: crypto.randomUUID(), name: "Sierra Verde", region: "veracruz" },
         ],
         meta: { match_count: 2 },
       },
     );
     const response = await client.callTool({
       name: "query_records",
-      arguments: { resource: "provider", name: "Choi" },
+      arguments: { resource: "provider", name: "Moca Norte" },
     });
     expect(response.isError).not.toBe(true);
     expect(api.calls).toEqual([
-      { method: "GET", route: "/providers?limit=50&offset=0&name=Choi", body: undefined },
+      { method: "GET", route: "/providers?limit=50&offset=0&name=Moca+Norte", body: undefined },
       { method: "GET", route: "/providers?limit=100&offset=0", body: undefined },
     ]);
     expect(response.structuredContent).toMatchObject({
@@ -154,10 +215,10 @@ describe("Cafe OS MCP tools", () => {
       meta: {
         match_count: 0,
         suggestion_count: 1,
-        name_suggestions: [{ name: "Chuy's Basement", region: "sonora", similarity: 0.5 }],
+        name_suggestions: [{ name: "Moka Norte", region: "sonora", similarity: 0.9 }],
       },
     });
-    expect(JSON.stringify(response.structuredContent)).not.toContain("Finca Norte");
+    expect(JSON.stringify(response.structuredContent)).not.toContain("Sierra Verde");
   });
 
   it("resolves a provider name and filters its purchase in one model-facing call", async () => {
@@ -178,7 +239,6 @@ describe("Cafe OS MCP tools", () => {
         resource: "purchase",
         provider_name: "Café Sierra",
         purchased_at: "2026-09-14",
-        status: "draft",
       },
     });
     expect(response.isError).not.toBe(true);
@@ -186,7 +246,7 @@ describe("Cafe OS MCP tools", () => {
       { method: "GET", route: "/providers?limit=50&offset=0&name=Caf%C3%A9%20Sierra", body: undefined },
       {
         method: "GET",
-        route: `/purchases?limit=50&offset=0&purchased_at=2026-09-14&status=draft&provider_id=${providerId}`,
+        route: `/purchases?limit=50&offset=0&purchased_at=2026-09-14&provider_id=${providerId}`,
         body: undefined,
       },
     ]);

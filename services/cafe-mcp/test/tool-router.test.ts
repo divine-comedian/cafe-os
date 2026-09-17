@@ -93,7 +93,7 @@ describe("Cafe tool intent router", () => {
     expect(payload.tool_choice.function.name).toBe("select_cafe_tools");
     expect(payload.response_format).toBeUndefined();
     expect(payload.reasoning).toEqual({ enabled: false, exclude: true });
-    expect(payload.messages[0].content).toContain("Green-coffee lots require a name and variety");
+    expect(payload.messages[0].content).toContain("Green-coffee lots require only a name");
     expect(payload.messages[0].content).toContain("lookup_resource");
   });
 
@@ -189,18 +189,18 @@ describe("Cafe tool intent router", () => {
     )).resolves.toMatchObject({ requiresUserInput: [] });
   });
 
-  it("removes green-coffee creation when required variety is missing", async () => {
+  it("keeps green-coffee creation when optional variety is missing", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
           choices: [{ message: { tool_calls: [{ function: {
             name: "select_cafe_tools",
             arguments: JSON.stringify({
-              intent: "incomplete_green_coffee_lot",
+              intent: "create_green_coffee_lot",
               tool_ids: ["create_green_coffee_lot"],
               confidence: 0.97,
-              missing_required_fields: ["variety"],
-              requires_user_input: ["variety"],
+              missing_required_fields: [],
+              requires_user_input: [],
               lookup_resource: "unknown",
               lookup_resources: [],
             }),
@@ -218,9 +218,9 @@ describe("Cafe tool intent router", () => {
       ),
     ).resolves.toMatchObject({
       ok: true,
-      toolIds: [],
-      missingRequiredFields: ["variety"],
-      requiresUserInput: ["variety"],
+      toolIds: ["create_green_coffee_lot"],
+      missingRequiredFields: [],
+      requiresUserInput: [],
       lookupResource: "unknown",
     });
   });

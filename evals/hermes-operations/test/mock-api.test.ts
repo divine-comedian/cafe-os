@@ -9,8 +9,8 @@ describe("MockCafeApi", () => {
     api = new MockCafeApi();
     const base = await api.start();
     const headers = { authorization: `Bearer ${api.token}`, "content-type": "application/json" };
-    const drafts = await fetch(`${base}/v1/purchases?provider_id=${IDS.cafeSierra}&status=draft`, { headers });
-    expect((await drafts.json()).data).toHaveLength(1);
+    const purchases = await fetch(`${base}/v1/purchases?provider_id=${IDS.cafeSierra}`, { headers });
+    expect((await purchases.json()).data).toHaveLength(2);
     const created = await fetch(`${base}/v1/providers`, { method: "POST", headers, body: JSON.stringify({ name: " Cooperativa Nube ", region: " OAXACA ", notes: " expo " }) });
     expect(await created.json()).toMatchObject({ data: { name: "Cooperativa Nube", region: "oaxaca" } });
     const deletion = await fetch(`${base}/v1/providers/${IDS.cafeSierra}`, { method: "DELETE", headers });
@@ -29,11 +29,11 @@ describe("MockCafeApi", () => {
 
     const form = new FormData();
     form.append("file", new Blob(["fixture"], { type: "image/png" }), "receipt.png");
-    const uploaded = await fetch(`${base}/v1/purchases/${IDS.draftPurchase}/document`, {
+    const uploaded = await fetch(`${base}/v1/purchases/${IDS.recentPurchase}/document`, {
       method: "PUT", headers: { authorization: `Bearer ${api.token}` }, body: form,
     });
     expect(await uploaded.json()).toMatchObject({
-      data: { document_path: `purchases/${IDS.draftPurchase}/eval-receipt.png` },
+      data: { document_path: `purchases/${IDS.recentPurchase}/eval-receipt.png` },
     });
     expect(api.operations.map((operation) => operation.method)).toEqual(["PATCH", "PUT"]);
   });

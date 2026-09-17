@@ -31,14 +31,12 @@ export function roastMetrics(
 
 export function weightedGreenUnitCost(
   purchases: Array<{
-    status: string;
     total_amount: string | number | null;
     received_weight_kg: string | number;
   }>,
 ): number | null {
   const totals = purchases.reduce(
     (result, purchase) => {
-      if (purchase.status !== "confirmed") return result;
       if (purchase.total_amount === null || purchase.total_amount === undefined) return result;
       const amount = Number(purchase.total_amount);
       const purchasedWeight = Number(purchase.received_weight_kg);
@@ -52,12 +50,12 @@ export function weightedGreenUnitCost(
 
 export function greenCoffeeInventory(
   lotId: string,
-  purchases: Array<{ green_coffee_lot_id: string; status: string; received_weight_kg: string | number }>,
+  purchases: Array<{ green_coffee_lot_id: string; received_weight_kg: string | number }>,
   roasts: Array<{ id: string; green_coffee_lot_id: string; status: string; green_input_kg: string | number | null }>,
   excludeRoastId?: string,
 ) {
   const purchasedKg = purchases
-    .filter((purchase) => purchase.green_coffee_lot_id === lotId && purchase.status === "confirmed")
+    .filter((purchase) => purchase.green_coffee_lot_id === lotId)
     .reduce((sum, purchase) => sum + Number(purchase.received_weight_kg || 0), 0);
   const reservedKg = roasts
     .filter((roast) => roast.green_coffee_lot_id === lotId && roast.status !== "void" && roast.id !== excludeRoastId)

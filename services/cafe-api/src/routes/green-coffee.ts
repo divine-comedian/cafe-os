@@ -68,11 +68,6 @@ export const greenCoffeeRoutes: FastifyPluginAsyncTypebox<GreenCoffeeRoutesOptio
       if (!name) {
         throw new ApiError(422, "VALIDATION_ERROR", "name is required.", { field: "name" });
       }
-      if (!variety) {
-        throw new ApiError(422, "VALIDATION_ERROR", "variety is required.", {
-          field: "variety",
-        });
-      }
       const input: Row = {
         name,
         origin: normalizeLabel(request.body.origin),
@@ -105,11 +100,6 @@ export const greenCoffeeRoutes: FastifyPluginAsyncTypebox<GreenCoffeeRoutesOptio
       if (hasOwn(request.body, "origin")) input.origin = normalizeLabel(request.body.origin);
       if (hasOwn(request.body, "variety")) {
         input.variety = normalizeLabel(request.body.variety);
-        if (!input.variety) {
-          throw new ApiError(422, "VALIDATION_ERROR", "variety is required.", {
-            field: "variety",
-          });
-        }
       }
       if (hasOwn(request.body, "notes")) input.notes = normalizeNotes(request.body.notes);
       const row = await store.patch("green_coffee_lots", request.params.id, input);

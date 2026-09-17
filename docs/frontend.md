@@ -47,7 +47,7 @@ Forward both the application and Supabase gateway from a workstation:
 ssh -N \
   -L 8100:127.0.0.1:8100 \
   -L 8000:127.0.0.1:8000 \
-  chaperzcommand@SERVER_IP
+  YOUR_SSH_USER@SERVER_IP
 ```
 
 Then open `http://127.0.0.1:8100` in the workstation browser. The second tunnel is required because the browser signs in against the self-hosted Auth endpoint at `SUPABASE_PUBLIC_URL`.
@@ -84,18 +84,18 @@ The interface keeps required entry fields short and shows an exact review step b
 
 - Provider: name and optional region.
 - Purchase: provider, total, received weight, optional date/payment method, and either an existing green-coffee lot or a new lot entered inline. Several purchases can select the same lot.
-- Green-coffee lot: name, variety, and optional origin. Weight and amount belong to purchases rather than the reusable lot identity.
+- Green-coffee lot: name, with optional origin and variety. Weight and amount belong to purchases rather than the reusable lot identity.
 - Roast batch: lot, timestamp, green input, roasted output, and optional duration.
 
-Purchases and roast batches created in the frontend are confirmed by the initial Save. Their tables show an Edit action for later corrections; saving an edit updates the record and leaves it confirmed. There is no separate operator-facing status or confirmation step. Draft and void states remain available internally for partial MCP capture and audit safety.
+Purchases have no status and become active on the initial Save. Their table shows an Edit action for later corrections. Roast batches retain draft, confirmed, and void states internally; the frontend's complete roast flow creates a confirmed roast.
 
-The roast form displays the selected lot's purchased, already-used, and available green weight. Available green coffee is the sum of confirmed purchases for a lot minus the green input of every non-void roast for that lot. Both the frontend and API reject a roast input above the available weight, and the database repeats the check under a per-lot lock to prevent concurrent saves from overbooking inventory.
+The roast form displays the selected lot's purchased, already-used, and available green weight. Available green coffee is the sum of all purchases for a lot minus the green input of every non-void roast for that lot. Both the frontend and API reject a roast input above the available weight, and the database repeats the check under a per-lot lock to prevent concurrent saves from overbooking inventory.
 
 The UI derives but does not persist:
 
 ```text
 weighted_green_unit_cost_per_kg =
-  sum(confirmed purchase amounts) ÷ sum(confirmed purchased weights)
+  sum(purchase amounts) ÷ sum(purchased weights)
 
 roast_loss_pct =
   (green_input_kg - roasted_output_kg) / green_input_kg × 100
@@ -107,7 +107,7 @@ base_roasted_cost_per_kg =
   (green_input_kg × weighted_green_unit_cost_per_kg) / roasted_output_kg
 ```
 
-Draft and void purchases do not affect cost or confirmed green weight. Base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
+Every stored purchase affects cost and green weight. Base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
 
 ## Checks
 

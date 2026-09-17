@@ -32,7 +32,7 @@ export function loadPendingOperationConfig(env: NodeJS.ProcessEnv = process.env)
   return {
     directory: env.CAFE_MCP_STATE_DIR?.trim() || path.join(os.tmpdir(), `cafe-os-mcp-${process.pid}`),
     contextId: env.CAFE_MCP_CONTEXT_ID?.trim() || "local-cafe-operator",
-    ttlMs: positiveInteger(env.CAFE_MCP_PENDING_TTL_MS, 15 * 60 * 1_000),
+    ttlMs: positiveInteger(env.CAFE_MCP_PENDING_TTL_MS, 7 * 24 * 60 * 60 * 1_000),
   };
 }
 
@@ -156,4 +156,3 @@ export class PendingOperationStore {
     return parsed;
   }
 }
-

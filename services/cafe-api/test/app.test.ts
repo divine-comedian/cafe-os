@@ -172,7 +172,7 @@ describe("Cafe API", () => {
     expect(invalid.json().error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("creates a purchase without a date and a new reusable green-coffee lot together", async () => {
+  it("creates a purchase and a new reusable green-coffee lot without an optional variety", async () => {
     const store = new MemoryStore();
     const providerId = crypto.randomUUID();
     store.rows.providers.push({ id: providerId, name: "Finca Test" });
@@ -191,7 +191,6 @@ describe("Cafe API", () => {
         new_green_coffee_lot: {
           name: "Cosecha 2026",
           origin: " CHIAPAS ",
-          variety: " BOURBON ",
         },
       },
     });
@@ -199,13 +198,13 @@ describe("Cafe API", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json().data.green_coffee_lot).toMatchObject({
       origin: "chiapas",
-      variety: "bourbon",
+      variety: null,
     });
     expect(response.json().data.purchase).toMatchObject({
       green_coffee_lot_id: response.json().data.green_coffee_lot.id,
       received_weight_kg: "20.000",
-      status: "confirmed",
     });
+    expect(response.json().data.purchase).not.toHaveProperty("status");
     expect(store.rows.purchases).toHaveLength(1);
     expect(store.rows.green_coffee_lots).toHaveLength(1);
   });
@@ -303,7 +302,54 @@ describe("Cafe API", () => {
     expect(response.json().data.currency).toBe("MXN");
   });
 
-  it("updates and confirms a draft purchase in one request", async () => {
+  it("does not expose a status field or status routes for purchases", async () => {
+    const store = new MemoryStore();
+    const providerId = crypto.randomUUID();
+    const lotId = crypto.randomUUID();
+    const purchaseId = crypto.randomUUID();
+    store.rows.providers.push({ id: providerId, name: "Test" });
+    store.rows.green_coffee_lots.push({ id: lotId, name: "Lot" });
+    store.rows.purchases.push({
+      id: purchaseId,
+      provider_id: providerId,
+      green_coffee_lot_id: lotId,
+      received_weight_kg: "1.000",
+      total_amount: "100.00",
+      currency: "MXN",
+    });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+    const headers = { authorization: "Bearer test-api-token" };
+
+    const filtered = await app.inject({
+      method: "GET",
+      url: "/v1/purchases?status=draft",
+      headers,
+    });
+    expect(filtered.statusCode).toBe(422);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/purchases",
+      headers,
+      payload: {
+        provider_id: providerId,
+        green_coffee_lot_id: lotId,
+        received_weight_kg: "1.000",
+        status: "confirmed",
+      },
+    });
+    expect(created.statusCode).toBe(422);
+
+    const transition = await app.inject({
+      method: "POST",
+      url: `/v1/purchases/${purchaseId}/confirm`,
+      headers,
+    });
+    expect(transition.statusCode).toBe(404);
+  });
+
+  it("updates an active purchase without a status transition", async () => {
     const store = new MemoryStore();
     const providerId = crypto.randomUUID();
     const lotId = crypto.randomUUID();
@@ -317,18 +363,15 @@ describe("Cafe API", () => {
       received_weight_kg: "1.000",
       total_amount: null,
       currency: "MXN",
-      status: "draft",
     });
     const app = await buildApp({ config, store, logger: false });
     apps.push(app);
 
     const response = await app.inject({
-      method: "PUT",
-      url: `/v1/purchases/${purchaseId}/confirm`,
+      method: "PATCH",
+      url: `/v1/purchases/${purchaseId}`,
       headers: { authorization: "Bearer test-api-token" },
       payload: {
-        provider_id: providerId,
-        green_coffee_lot_id: lotId,
         purchased_at: null,
         received_weight_kg: "12.500",
         total_amount: "1875.00",
@@ -339,12 +382,12 @@ describe("Cafe API", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().data).toMatchObject({
-      status: "confirmed",
       purchased_at: null,
       received_weight_kg: "12.500",
       total_amount: "1875.00",
       payment_method: "transferencia",
     });
+    expect(response.json().data).not.toHaveProperty("status");
   });
 
   it("aggregates purchases, subtracts prior roasts, and blocks excess green input", async () => {
@@ -360,13 +403,11 @@ describe("Cafe API", () => {
         id: crypto.randomUUID(),
         green_coffee_lot_id: lotId,
         received_weight_kg: "10.000",
-        status: "confirmed",
       },
       {
         id: crypto.randomUUID(),
         green_coffee_lot_id: lotId,
         received_weight_kg: "5.000",
-        status: "confirmed",
       },
     );
     store.rows.roast_batches.push({
@@ -426,7 +467,6 @@ describe("Cafe API", () => {
       id: crypto.randomUUID(),
       green_coffee_lot_id: lotId,
       received_weight_kg: "10.000",
-      status: "confirmed",
     });
     store.rows.roast_batches.push({
       id: roastId,

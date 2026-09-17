@@ -14,7 +14,6 @@ export interface Purchase {
   green_coffee_lot_id: string;
   purchased_at: string | null;
   received_weight_kg: string | number;
-  status: Status;
   total_amount: string | number | null;
   currency: string;
   payment_method: string | null;
@@ -27,7 +26,7 @@ export interface CoffeeLot {
   id: string;
   name: string;
   origin: string | null;
-  variety: string;
+  variety: string | null;
   notes: string | null;
   created_at: string;
 }

@@ -42,13 +42,13 @@ export const CAFE_TOOL_CATALOG: readonly CafeToolCatalogEntry[] = [
   {
     name: "create_purchase",
     kind: "write",
-    description: "Create a supplier purchase draft after human confirmation.",
+    description: "Create an active supplier purchase after human confirmation.",
     searchTerms: ["create", "add", "purchase", "invoice", "buy", "crear", "agregar", "compra", "factura"],
   },
   {
     name: "create_green_coffee_lot",
     kind: "write",
-    description: "Create a green coffee lot linked to a purchase after human confirmation.",
+    description: "Create a reusable green coffee lot after human confirmation.",
     searchTerms: ["create", "add", "green", "coffee", "lot", "crear", "agregar", "cafe", "verde", "lote"],
   },
   {
@@ -66,8 +66,8 @@ export const CAFE_TOOL_CATALOG: readonly CafeToolCatalogEntry[] = [
   {
     name: "set_record_status",
     kind: "write",
-    description: "Confirm or void an existing purchase or roast batch draft.",
-    searchTerms: ["status", "confirm", "void", "accept", "estado", "confirmar", "anular", "aceptar"],
+    description: "Confirm or void an existing roast batch draft.",
+    searchTerms: ["status", "roast", "confirm", "void", "accept", "estado", "tueste", "confirmar", "anular", "aceptar"],
   },
   {
     name: "delete_record",

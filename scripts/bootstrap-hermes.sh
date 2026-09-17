@@ -17,12 +17,25 @@ install -d -m 700 "$router_plugin_dir"
 install -m 600 "$project_root/config/hermes/plugins/cafe-tool-router/__init__.py" "$router_plugin_dir/__init__.py"
 install -m 600 "$project_root/config/hermes/plugins/cafe-tool-router/plugin.yaml" "$router_plugin_dir/plugin.yaml"
 install -d -m 700 "$hermes_home/state/cafe-mcp"
+voice_vocabulary_dir="$hermes_home/state/voice-vocabulary"
+voice_vocabulary_file="$voice_vocabulary_dir/vocabulary.json"
+install -d -m 700 "$voice_vocabulary_dir" "$voice_vocabulary_dir/pending"
+if [ ! -e "$voice_vocabulary_file" ]; then
+  install -m 600 "$project_root/config/hermes/voice-vocabulary.example.json" "$voice_vocabulary_file"
+else
+  chmod 600 "$voice_vocabulary_file"
+fi
 
 if [ -z "$hermes_cmd" ]; then
   curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
     | bash -s -- --skip-setup --skip-browser --skip-computer-use --non-interactive
   hermes_cmd="$hermes_home/hermes-agent/venv/bin/hermes"
 fi
+
+"$project_root/scripts/install-parakeet-stt.sh"
+install -d -m 700 "$hermes_home/logs"
+touch "$hermes_home/logs/parakeet-stt.log" "$hermes_home/logs/parakeet-stt.log.lock"
+chmod 600 "$hermes_home/logs/parakeet-stt.log" "$hermes_home/logs/parakeet-stt.log.lock"
 
 "$hermes_home/bin/uv" pip install \
   --python "$hermes_home/hermes-agent/venv/bin/python" \
@@ -39,6 +52,14 @@ fi
 "$hermes_cmd" config set model.base_url https://openrouter.ai/api/v1
 "$hermes_cmd" config set model.max_tokens 16384
 "$hermes_cmd" config set --force agent.reasoning_effort high
+# Fail over quickly on rate limits or genuine model-availability failures instead of spending
+# three full-context attempts. The Cafe plugin prevents semantic, tool, validation, billing, and
+# auth failures from activating this fallback. GLM publishes low/high/max; use high here.
+"$hermes_cmd" config set agent.api_max_retries 1
+"$hermes_cmd" config set --force fallback_model \
+  '{"provider":"openrouter","model":"z-ai/glm-5.3-flash"}'
+"$hermes_cmd" config set --force agent.reasoning_overrides \
+  '{"z-ai/glm-5.3-flash":"high"}'
 # Hermes adds one tool-free wrap-up call after exhaustion: 19 iterations + 1 grace call = 20 hops maximum.
 "$hermes_cmd" config set agent.max_turns 19
 "$hermes_cmd" config set --force agent.disabled_toolsets \
@@ -62,7 +83,22 @@ fi
 "$hermes_cmd" config set timezone America/Mexico_City
 "$hermes_cmd" config set group_sessions_per_user true
 "$hermes_cmd" config set stt.enabled true
-"$hermes_cmd" config set stt.provider local
+parakeet_provider="$("$hermes_home/hermes-agent/venv/bin/python" - "$project_root/scripts/transcribe-parakeet.sh" <<'PY'
+import json
+import shlex
+import sys
+
+adapter = shlex.quote(sys.argv[1])
+print(json.dumps({
+    "type": "command",
+    "command": f"{adapter} {{input_path}} {{output_path}}",
+    "format": "txt",
+    "timeout": 180,
+}, separators=(",", ":")))
+PY
+)"
+"$hermes_cmd" config set --force stt.providers.parakeet "$parakeet_provider"
+"$hermes_cmd" config set --force stt.provider parakeet
 "$hermes_cmd" config set stt.language ""
 "$hermes_cmd" config set approvals.mode smart
 "$hermes_cmd" config set gateway.systemd_watchdog_seconds 120
@@ -71,7 +107,32 @@ fi
 "$hermes_cmd" config set display.platforms.telegram.show_reasoning false
 "$hermes_cmd" config set display.platforms.telegram.interim_assistant_messages false
 "$hermes_cmd" config set display.platforms.telegram.streaming false
+"$hermes_cmd" config set display.platforms.telegram.busy_steer_ack_enabled false
 "$hermes_cmd" config set display.tool_progress_command false
+
+voice_vocabulary_server="$project_root/services/cafe-mcp/dist/voice-vocabulary-server.js"
+if [ ! -f "$voice_vocabulary_server" ]; then
+  if [ ! -d "$project_root/services/cafe-mcp/node_modules/@modelcontextprotocol/sdk" ]; then
+    npm --prefix "$project_root/services/cafe-mcp" ci --ignore-scripts
+  fi
+  npm --prefix "$project_root/services/cafe-mcp" run build
+fi
+voice_vocabulary_config="$(node -e '
+const server = process.argv[1];
+const home = process.argv[2];
+process.stdout.write(JSON.stringify({
+  command: "node",
+  args: [server],
+  env: {
+    VOICE_VOCABULARY_PATH: `${home}/state/voice-vocabulary/vocabulary.json`,
+    VOICE_VOCABULARY_PENDING_DIR: `${home}/state/voice-vocabulary/pending`,
+    VOICE_VOCABULARY_CONTEXT_ID: "cafe-operations"
+  },
+  trust: "full",
+  tools: { resources: false, prompts: false }
+}));
+' "$voice_vocabulary_server" "$hermes_home")"
+"$hermes_cmd" config set --force mcp_servers.voice_vocabulary "$voice_vocabulary_config"
 
 "$hermes_home/hermes-agent/venv/bin/python" -c \
   "from hermes_cli.config import save_env_value_secure; save_env_value_secure('TELEGRAM_ALLOW_ALL_USERS', 'false')"
@@ -119,7 +180,8 @@ process.stdout.write(JSON.stringify({
     CAFE_API_TOKEN: "${CAFE_API_TOKEN}",
     CAFE_MCP_UPLOAD_ROOTS: `${home}/cache`,
     CAFE_MCP_STATE_DIR: `${home}/state/cafe-mcp`,
-    CAFE_MCP_CONTEXT_ID: "cafe-operations"
+    CAFE_MCP_CONTEXT_ID: "cafe-operations",
+    CAFE_MCP_PENDING_TTL_MS: "604800000"
   },
   trust: "full",
   tools: { resources: false, prompts: false }

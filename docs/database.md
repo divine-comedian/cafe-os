@@ -26,7 +26,6 @@ Every table uses a UUID primary key and a `created_at` timestamp. Records are li
 - `green_coffee_lot_id`
 - optional `purchased_at`
 - `received_weight_kg`
-- `status`: `draft`, `confirmed`, or `void`
 - `total_amount`
 - `currency`, defaulting to `MXN`
 - `payment_method`
@@ -42,9 +41,9 @@ providers/{provider_id}/purchases/{purchase_id}/{filename}
 ### `green_coffee_lots`
 
 - `name`
-- `origin`
-- `variety`
-- `notes`
+- optional `origin`
+- optional `variety`
+- optional `notes`
 
 ### `roast_batches`
 
@@ -58,7 +57,7 @@ providers/{provider_id}/purchases/{purchase_id}/{filename}
 - optional JSON object `machine_settings`
 - `notes`
 
-A confirmed purchase must have a total. A confirmed roast must have its timestamp and both weights, and roasted output cannot exceed green input.
+Purchases and green-coffee lots have no status; a stored record is active. A confirmed roast must have its timestamp and both weights, and roasted output cannot exceed green input.
 
 ## Calculations
 
@@ -72,15 +71,15 @@ base_roasted_cost_per_kg =
   (green_input_kg * weighted_green_unit_cost_per_kg) / roasted_output_kg
 
 weighted_green_unit_cost_per_kg =
-  sum(confirmed purchase total_amount) /
-  sum(confirmed purchase received_weight_kg)
+  sum(purchase total_amount) /
+  sum(purchase received_weight_kg)
 
 available_green_kg =
-  sum(confirmed purchase received_weight_kg) -
+  sum(purchase received_weight_kg) -
   sum(non-void roast green_input_kg)
 ```
 
-Draft and void purchases do not enter the weighted cost or available supply. Non-void roast batches with a green input reserve that weight, including partial drafts captured through the API, so later roasts cannot overbook the lot. Database triggers serialize inventory-changing writes per lot and reject both excess roast input and purchase changes that would reduce supply below already-reserved roast input.
+Every purchase enters weighted cost and available supply immediately. Non-void roast batches with a green input reserve that weight, including partial drafts captured through the API, so later roasts cannot overbook the lot. Database triggers serialize inventory-changing writes per lot and reject both excess roast input and purchase changes that would reduce supply below already-reserved roast input.
 
 The base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
 

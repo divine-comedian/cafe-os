@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { PendingOperationStore } from "../src/pending-operations.js";
+import { loadPendingOperationConfig, PendingOperationStore } from "../src/pending-operations.js";
 
 const directories: string[] = [];
 afterEach(async () => Promise.all(directories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true }))));
@@ -14,6 +14,10 @@ async function store(contextId = "session-a") {
 }
 
 describe("pending Cafe operations", () => {
+  it("keeps proposals resumable for seven days by default", () => {
+    expect(loadPendingOperationConfig({}).ttlMs).toBe(7 * 24 * 60 * 60 * 1_000);
+  });
+
   it("stores canonical arguments and claims once", async () => {
     const pending = await store();
     const prepared = await pending.prepare("create_provider", { notes: "n", name: "Morning profile" });
@@ -29,4 +33,3 @@ describe("pending Cafe operations", () => {
     await expect(pending.claim(prepared.id, "update_record")).rejects.toThrow("TOOL_MISMATCH");
   });
 });
-

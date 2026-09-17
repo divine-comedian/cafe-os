@@ -77,7 +77,6 @@ export async function greenCoffeeInventory(
     listAll(store, "roast_batches", { green_coffee_lot_id: greenCoffeeLotId }),
   ]);
   const purchasedKg = purchases
-    .filter((purchase) => purchase.status === "confirmed")
     .reduce((sum, purchase) => sum + Number(purchase.received_weight_kg || 0), 0);
   const reservedKg = roasts
     .filter((roast) => roast.status !== "void" && roast.id !== excludeRoastId)
@@ -129,8 +128,7 @@ export function requireNonnegativeDecimal(value: string | null, field: string): 
 }
 
 export function weightedGreenUnitCost(purchases: Row[]): number | null {
-  const confirmed = purchases.filter((purchase) => purchase.status === "confirmed");
-  const totals = confirmed.reduce<{ amount: number; weight: number }>(
+  const totals = purchases.reduce<{ amount: number; weight: number }>(
     (result, purchase) => {
       if (purchase.total_amount === null || purchase.total_amount === undefined) return result;
       const amount = Number(purchase.total_amount);

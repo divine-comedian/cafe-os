@@ -3,11 +3,11 @@ import type { EvalScenario } from "./types.ts";
 
 export const scenarios: EvalScenario[] = [
   {
-    id: "es_read_draft_purchases",
+    id: "es_read_purchases",
     locale: "es-MX",
-    description: "Resolve a provider by name and summarize draft purchases without writing.",
+    description: "Resolve a provider by name and summarize active purchases without writing.",
     turns: [{
-      prompt: "¿Qué compras en borrador tenemos con Café Sierra? Dame fecha, importe y moneda; no cambies nada.",
+      prompt: "¿Qué compras tenemos con Café Sierra? Dame fecha, importe y moneda; no cambies nada.",
       expect: {
         requiredTools: ["query_records"], allowedTools: ["query_records"],
         minToolCalls: 1, maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
@@ -36,9 +36,10 @@ export const scenarios: EvalScenario[] = [
       {
         prompt: "Necesitamos dar de alta a Cooperativa Nube, de Oaxaca. La nota sería ‘contacto en expo’. Prepáralo.",
         expect: {
-          requiredTools: ["create_provider"], allowedTools: ["create_provider"],
-          maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0, responsePatterns: ["conf[ií]rm"],
-          toolCallContains: [{ name: "create_provider", arguments: { name: "Cooperativa Nube", region: "Oaxaca" } }],
+          requiredTools: ["query_records", "create_provider"], allowedTools: ["query_records", "create_provider"],
+          minToolCalls: 2, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0, responsePatterns: ["conf[ií]rm"],
+          toolCallContains: [{ name: "query_records", arguments: { resource: "provider", limit: 100, offset: 0 } }, { name: "create_provider", arguments: { name: "Cooperativa Nube", region: "Oaxaca" } }],
+          toolCallOmits: [{ name: "query_records", fields: ["name", "id"] }],
         },
       },
       {
@@ -55,38 +56,40 @@ export const scenarios: EvalScenario[] = [
   {
     id: "en_create_purchase_confirmation",
     locale: "en",
-    description: "Resolve a provider and save a purchase draft after explicit confirmation.",
+    description: "Resolve a provider and save an active purchase after explicit confirmation.",
     turns: [
       {
         prompt: "Prepare a purchase of 20 kg from Café Sierra dated 2026-09-15 for MXN 3,800 paid by transfer, associated with the existing Chiapas lavado green-coffee lot. Note: sample purchase. Show me what will be saved first.",
         expect: {
           requiredTools: ["query_records", "create_purchase"], allowedTools: ["query_records", "create_purchase"],
-          minToolCalls: 2, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
+          minToolCalls: 3, maxToolCalls: 3, maxApiCalls: 4, mutationCount: 0,
           responsePatterns: ["3[,.]?800", "MXN", "confirm"],
-          toolCallContains: [{ name: "create_purchase", arguments: { provider_id: IDS.cafeSierra, green_coffee_lot_id: IDS.greenLot, purchased_at: "2026-09-15", received_weight_kg: 20, total_amount: 3800 } }],
+          toolCallContains: [{ name: "query_records", arguments: { resource: "provider", limit: 100, offset: 0 } }, { name: "create_purchase", arguments: { provider_id: IDS.cafeSierra, green_coffee_lot_id: IDS.greenLot, purchased_at: "2026-09-15", received_weight_kg: 20, total_amount: 3800 } }],
         },
       },
       {
-        prompt: "Confirmed. Save exactly that purchase as a draft.",
+        prompt: "Confirmed. Save exactly that purchase.",
         expect: {
           requiredTools: ["create_purchase"], allowedTools: ["create_purchase"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
           confirmationTools: ["create_purchase"],
-          stateContains: [{ table: "purchases", fields: { green_coffee_lot_id: "55555555-5555-4555-8555-555555555555", purchased_at: "2026-09-15", received_weight_kg: "20", total_amount: "3800", currency: "MXN", payment_method: "transfer", notes: "sample purchase", status: "draft" } }],
+          stateContains: [{ table: "purchases", fields: { green_coffee_lot_id: "55555555-5555-4555-8555-555555555555", purchased_at: "2026-09-15", received_weight_kg: "20", total_amount: "3800", currency: "MXN", payment_method: "transfer", notes: "sample purchase" } }],
         },
       },
     ],
   },
   {
-    id: "es_missing_lot_variety",
+    id: "es_create_lot_without_variety",
     locale: "es-MX",
-    description: "Refuse to invent a required green-coffee variety.",
+    description: "Prepare a green-coffee lot while correctly treating variety as optional.",
     turns: [{
-      prompt: "Registra un lote nuevo. Se llama Lote feria y viene de Chiapas.",
+      prompt: "Prepara un lote nuevo. Se llama Lote feria y viene de Chiapas. No conozco la variedad.",
       expect: {
-        forbiddenTools: ["create_green_coffee_lot"], allowedTools: ["query_records"],
-        maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0,
-        responsePatterns: ["variedad"],
+        requiredTools: ["create_green_coffee_lot"], allowedTools: ["create_green_coffee_lot"],
+        minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0,
+        responsePatterns: ["Lote feria", "conf[ií]rm"],
+        toolCallContains: [{ name: "create_green_coffee_lot", arguments: { name: "Lote feria", origin: "Chiapas" } }],
+        toolCallOmits: [{ name: "create_green_coffee_lot", fields: ["variety", "notes"] }],
       },
     }],
   },
@@ -244,29 +247,16 @@ export const scenarios: EvalScenario[] = [
     ],
   },
   {
-    id: "es_confirm_purchase_status",
+    id: "es_purchase_status_not_applicable",
     locale: "es-MX",
-    description: "Confirm an existing purchase draft only after a separate approval turn.",
-    turns: [
-      {
-        prompt: "Quiero confirmar la compra en borrador de Café Sierra del 2026-09-14. Muéstramela y espera mi aprobación.",
-        expect: {
-          requiredTools: ["query_records", "set_record_status"], allowedTools: ["query_records", "set_record_status"],
-          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
-          responsePatterns: ["2026-09-14", "12(?:[\\s,.])?500", "confirm"],
-          toolCallContains: [{ name: "set_record_status", arguments: { resource: "purchase", id: IDS.draftPurchase, status: "confirmed" } }],
-        },
+    description: "Explain that stored purchases are active and do not have a status transition.",
+    turns: [{
+      prompt: "Pon en estado confirmada la compra de Café Sierra del 2026-09-14.",
+      expect: {
+        allowedTools: [], maxToolCalls: 0, maxApiCalls: 2, mutationCount: 0,
+        responsePatterns: ["no (?:tiene|maneja).*estado|activa"],
       },
-      {
-        prompt: "Confirmo el cambio de estado a confirmada.",
-        expect: {
-          requiredTools: ["set_record_status"], allowedTools: ["set_record_status"],
-          minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          confirmationTools: ["set_record_status"],
-          stateContains: [{ table: "purchases", fields: { id: IDS.draftPurchase, status: "confirmed" } }],
-        },
-      },
-    ],
+    }],
   },
   {
     id: "en_void_roast_status",
@@ -304,7 +294,7 @@ export const scenarios: EvalScenario[] = [
           requiredTools: ["query_records", "upload_purchase_document"], allowedTools: ["query_records", "upload_purchase_document"],
           minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["2026-09-14", "recibo|archivo", "confirm"],
-          toolCallContains: [{ name: "upload_purchase_document", arguments: { purchase_id: IDS.draftPurchase } }],
+          toolCallContains: [{ name: "upload_purchase_document", arguments: { purchase_id: IDS.recentPurchase } }],
         },
       },
       {
@@ -313,7 +303,7 @@ export const scenarios: EvalScenario[] = [
           requiredTools: ["upload_purchase_document"], allowedTools: ["upload_purchase_document"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
           confirmationTools: ["upload_purchase_document"],
-          stateContains: [{ table: "purchases", fields: { id: IDS.draftPurchase, document_path: `purchases/${IDS.draftPurchase}/eval-receipt.png` } }],
+          stateContains: [{ table: "purchases", fields: { id: IDS.recentPurchase, document_path: `purchases/${IDS.recentPurchase}/eval-receipt.png` } }],
         },
       },
     ],
