@@ -37,7 +37,7 @@ fi
 "$hermes_cmd" config set model.default qwen/qwen3.8-flash
 "$hermes_cmd" config set model.base_url https://openrouter.ai/api/v1
 "$hermes_cmd" config set model.max_tokens 16384
-"$hermes_cmd" config set --force agent.reasoning_effort medium
+"$hermes_cmd" config set --force agent.reasoning_effort high
 # Hermes adds one tool-free wrap-up call after exhaustion: 19 iterations + 1 grace call = 20 hops maximum.
 "$hermes_cmd" config set agent.max_turns 19
 "$hermes_cmd" config set --force agent.disabled_toolsets \
