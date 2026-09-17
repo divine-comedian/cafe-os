@@ -1,8 +1,9 @@
-"""Thin Hermes host adapter for the TypeScript Cafe tool router.
+"""Hermes host adapter for the Cafe OS tool catalog and safety boundary.
 
-Selection and validation live in services/cafe-mcp/src/tool-router.ts. This file only
-bridges Hermes's Python plugin API, filters model-facing schemas, and enforces
-request-scoped execution invariants available only inside the Hermes process.
+Production can expose the full Cafe catalog directly to the main model. The optional
+routed mode delegates selection and validation to services/cafe-mcp/src/tool-router.ts.
+This adapter also enforces request-scoped execution invariants available only inside
+the Hermes process.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int
 _COMPLETION_BUDGET = _bounded_env_int("CAFE_HARNESS_COMPLETION_BUDGET", 8_192, 2_048, 131_072)
 _MAX_HOP_TOKENS = _bounded_env_int("CAFE_HARNESS_MAX_HOP_TOKENS", 4_096, 1_024, 32_768)
 _COMPLETION_RESERVE = _bounded_env_int("CAFE_HARNESS_COMPLETION_RESERVE", 1_024, 512, 8_192)
+_FULL_CATALOG_HOP_CAP = _bounded_env_int("CAFE_FULL_CATALOG_HOP_CAP", 20, 2, 20)
 _PROPOSAL_REQUIRED = {
     "create_provider": ["name"],
     "create_purchase": ["provider_id", "green_coffee_lot_id", "received_weight_kg"],
@@ -119,6 +121,10 @@ def _router_cli() -> str:
     if explicit:
         return explicit
     return os.path.join(os.getcwd(), "services", "cafe-mcp", "dist", "tool-router-cli.js")
+
+
+def _visibility_mode() -> str:
+    return "full" if os.environ.get("CAFE_TOOL_VISIBILITY_MODE", "routed").strip().lower() == "full" else "routed"
 
 
 def _route(request: dict[str, Any], request_id: str) -> dict[str, Any]:
@@ -254,15 +260,29 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     if state is None:
         pending_context = _pending_from_messages(request.get("messages"))
         pending_tool = pending_context[0] if pending_context else None
-        routed = ({
-            "ok": True,
-            "intent": "confirm_pending_operation",
-            "toolIds": [pending_tool],
-            "confidence": 1,
-            "model": "pending-confirmation-bypass",
-            "durationMs": 0,
-            "fallbackReason": "pending_confirmation_bypass",
-        } if pending_tool in cafe_tools else _route(request, api_request_id))
+        full_catalog = not pending_context and _visibility_mode() == "full"
+        if pending_tool in cafe_tools:
+            routed = {
+                "ok": True,
+                "intent": "confirm_pending_operation",
+                "toolIds": [pending_tool],
+                "confidence": 1,
+                "model": "pending-confirmation-bypass",
+                "durationMs": 0,
+                "fallbackReason": "pending_confirmation_bypass",
+            }
+        elif full_catalog:
+            routed = {
+                "ok": True,
+                "intent": "full_catalog",
+                "toolIds": sorted(name for name in cafe_tools if name != _DISCOVERY),
+                "confidence": 1,
+                "model": "full-catalog",
+                "durationMs": 0,
+                "fallbackReason": "full_catalog_mode",
+            }
+        else:
+            routed = _route(request, api_request_id)
         selected = {
             value for value in routed.get("toolIds", [])
             if isinstance(value, str) and value in cafe_tools and value != _DISCOVERY
@@ -302,6 +322,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "kinds": kinds,
             "pending_ids": {pending_context[1]} if pending_context else set(),
             "pending_bypass": bool(pending_context),
+            "full_catalog": full_catalog,
             "discovery_used": False,
             "pending_prepared": False,
             "activated": set(),
@@ -317,7 +338,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "blocking_missing_fields": requires_user_input,
             "lookup_resource": lookup_resource,
             "lookup_resources": lookup_resources,
-            "work_hop_cap": 4 if len(lookup_resources) > 1 else 3,
+            "work_hop_cap": (_FULL_CATALOG_HOP_CAP if full_catalog
+                             else (4 if len(lookup_resources) > 1 else 3)),
         }
         _put_state(session_id, turn_id, state)
         if pending_context:
@@ -339,12 +361,13 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             requires_user_input=sorted(requires_user_input),
             lookup_resource=lookup_resource,
             lookup_resources=lookup_resources,
+            visibility_mode="full" if full_catalog else "routed",
             fallback_reason=routed.get("fallbackReason"),
         )
 
     newly_activated = ((_activated_from_messages(request.get("messages")) & set(cafe_tools))
                        - set(state.get("activated", set()))
-                       if not state.get("pending_bypass") else set())
+                       if not state.get("pending_bypass") and not state.get("full_catalog") else set())
     if newly_activated:
         state["selected"].update(newly_activated)
         state["activated"].update(newly_activated)
@@ -352,11 +375,14 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         _event("discovery_activated", session_id=session_id, turn_id=turn_id, tools=sorted(newly_activated))
 
     selected = set(state["selected"])
-    visible = selected | ({_DISCOVERY} if not state.get("pending_bypass")
-                          and not state.get("blocking_missing_fields")
-                          and not state.get("phase_instruction")
-                          and not state.get("discovery_used")
-                          and state["fallback"] else set())
+    if state.get("full_catalog"):
+        visible = set(cafe_tools)
+    else:
+        visible = selected | ({_DISCOVERY} if not state.get("pending_bypass")
+                              and not state.get("blocking_missing_fields")
+                              and not state.get("phase_instruction")
+                              and not state.get("discovery_used")
+                              and state["fallback"] else set())
 
     # Operational cap: allow the expected work hops, then force a tool-free wrap-up.
     cap = 4 if state.get("routed_fallback") else int(state.get("work_hop_cap", 3))
@@ -477,7 +503,18 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         name for name in visible
         if state.get("kinds", {}).get(name) == "write"
     )
-    if active_writes and not state.get("pending_bypass"):
+    if state.get("full_catalog") and active_writes:
+        messages.append({
+            "role": "system",
+            "content": (
+                "The complete Cafe OS tool catalog is available. Choose only the tools needed for the "
+                "user's request. Do not call a mutation tool for a read-only request. For a requested "
+                "write, resolve stored names or UUIDs first when necessary, and call exactly one appropriate "
+                "mutation tool only after every schema-required field is known. Its pending_confirmation "
+                "result is the only proposal you may present; never ask for confirmation from prose alone."
+            ),
+        })
+    elif active_writes and not state.get("pending_bypass"):
         messages.append({
             "role": "system",
             "content": (
@@ -615,7 +652,7 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                   and isinstance(match_count, int) and match_count > 1 and exact_count != 1):
                 state["stop_tools"] = True
                 state["terminal_reason"] = "needs_clarification"
-            elif exact_count == 1 and any(name in state["selected"] for name in {
+            elif not state.get("full_catalog") and exact_count == 1 and any(name in state["selected"] for name in {
                 "create_purchase", "create_green_coffee_lot", "create_roast_batch", "update_record", "delete_record"
             }):
                 remaining_lookups = [
@@ -653,7 +690,7 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                         "The exact green-coffee lot is resolved. Call create_roast_batch now with the supplied "
                         "fields to create the non-writing pending proposal."
                     )
-            elif match_count == 1 and any(name in state["selected"] for name in {
+            elif not state.get("full_catalog") and match_count == 1 and any(name in state["selected"] for name in {
                 "set_record_status", "upload_purchase_document"
             }):
                 state["selected"].discard("query_records")

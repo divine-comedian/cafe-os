@@ -18,7 +18,7 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - The gateway runs as an enabled per-user systemd service and starts automatically at boot.
 - A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema and invite-only email Auth.
 - The TypeScript Cafe API and authenticated React operations UI are served on `127.0.0.1:8100`.
-- A ten-tool TypeScript MCP adapter, DeepSeek Flash intent router, exact pending-confirmation store, and guarded Hermes operations skill are connected to the allowlisted Telegram profile. General-purpose tools remain disabled.
+- A ten-tool TypeScript MCP adapter, exact pending-confirmation store, and guarded Hermes operations skill are connected to the allowlisted Telegram profile. The main model receives the full Cafe catalog; the optional DeepSeek Flash intent router remains available for controlled evals. General-purpose tools remain disabled.
 
 ## Finish setup
 

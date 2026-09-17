@@ -105,6 +105,7 @@ if not router_cli.is_file():
     raise SystemExit(f"Cafe tool router is not built at {router_cli}")
 save_env_value_secure("CAFE_API_TOKEN", token)
 save_env_value_secure("CAFE_TOOL_ROUTER_CLI", str(router_cli))
+save_env_value_secure("CAFE_TOOL_VISIBILITY_MODE", "full")
 PY
   install -d -m 700 "$hermes_home/cache" "$hermes_home/state/cafe-mcp"
   mcp_config="$(node -e '

@@ -90,24 +90,27 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
   if (harnessEvents.length) {
     const routerEvents = harnessEvents.filter((event) => event.event === "router");
     results.push(check(routerEvents.length === 1, `one router decision per user turn; got ${routerEvents.length}`));
+    const fullCatalog = routerEvents[0]?.visibility_mode === "full";
     const routed = new Set(Array.isArray(routerEvents[0]?.selected) ? routerEvents[0].selected as string[] : []);
     const missingRouted = (expectation.requiredTools ?? []).filter((tool) => !routed.has(tool));
     results.push(check(
       missingRouted.length === 0,
-      `router selected required tools${missingRouted.length ? `; missing ${missingRouted.join(", ")}` : ""}`,
+      `${fullCatalog ? "full catalog contains" : "router selected"} required tools${missingRouted.length ? `; missing ${missingRouted.join(", ")}` : ""}`,
     ));
-    const forbiddenRouted = (expectation.forbiddenTools ?? []).filter((tool) => routed.has(tool));
-    results.push(check(
-      forbiddenRouted.length === 0,
-      `router excludes forbidden tools${forbiddenRouted.length ? `; saw ${forbiddenRouted.join(", ")}` : ""}`,
-    ));
-    if (expectation.routerRequiresUserInput) {
+    if (!fullCatalog) {
+      const forbiddenRouted = (expectation.forbiddenTools ?? []).filter((tool) => routed.has(tool));
+      results.push(check(
+        forbiddenRouted.length === 0,
+        `router excludes forbidden tools${forbiddenRouted.length ? `; saw ${forbiddenRouted.join(", ")}` : ""}`,
+      ));
+    }
+    if (!fullCatalog && expectation.routerRequiresUserInput) {
       const routedMissing = new Set(Array.isArray(routerEvents[0]?.requires_user_input)
         ? routerEvents[0].requires_user_input as string[] : []);
       const absent = expectation.routerRequiresUserInput.filter((field) => !routedMissing.has(field));
       results.push(check(absent.length === 0, `router requests required user input${absent.length ? `; missing ${absent.join(", ")}` : ""}`));
     }
-    if (expectation.routerRequiresAnyOf) {
+    if (!fullCatalog && expectation.routerRequiresAnyOf) {
       const routedMissing = new Set(Array.isArray(routerEvents[0]?.requires_user_input)
         ? routerEvents[0].requires_user_input as string[] : []);
       for (const alternatives of expectation.routerRequiresAnyOf) {
@@ -120,8 +123,17 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
     const activeToolSets = harnessEvents
       .filter((event) => event.event === "model_hop" && Array.isArray(event.active_tools))
       .map((event) => event.active_tools as unknown[]);
-    const oversized = activeToolSets.some((active) => active.length > 6);
-    results.push(check(!oversized, "active Cafe tool subset stays within five selected tools plus discovery"));
+    if (fullCatalog) {
+      const expectedCatalog = new Set([...routed, "discover_tools"]);
+      const missingCatalogTools = [...expectedCatalog].filter((name) => !activeToolSets[0]?.includes(name));
+      results.push(check(
+        missingCatalogTools.length === 0,
+        `main model receives the full Cafe catalog${missingCatalogTools.length ? `; missing ${missingCatalogTools.join(", ")}` : ""}`,
+      ));
+    } else {
+      const oversized = activeToolSets.some((active) => active.length > 6);
+      results.push(check(!oversized, "active Cafe tool subset stays within five selected tools plus discovery"));
+    }
     const invalid = activeToolSets.flat().filter((name) => typeof name !== "string" || !/^[a-z][a-z0-9_]*$/u.test(name));
     results.push(check(invalid.length === 0, "active tool context contains only Cafe catalog IDs"));
     if (expectation.confirmationTools?.length) {

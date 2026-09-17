@@ -93,6 +93,7 @@ export interface EvalRun {
   provider: string;
   profile: string;
   suite: string;
+  toolVisibility: "routed" | "full";
   reasoning: ReasoningEffort;
   scenarios: ScenarioResult[];
   summary: {

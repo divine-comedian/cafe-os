@@ -53,6 +53,16 @@ npm --prefix evals/hermes-operations run eval -- --suite partial --reasoning med
 npm --prefix evals/hermes-operations run eval -- --suite all --reasoning medium
 ```
 
+The default `--tool-visibility routed` preserves comparisons with historical router benchmarks. To exercise the production full-catalog path and bypass the classifier, run:
+
+```bash
+npm --prefix evals/hermes-operations run eval -- \
+  --scenario es_update_provider_confirmation \
+  --tool-visibility full \
+  --reasoning high \
+  --verbose
+```
+
 `--scenario <id>` searches both catalogs regardless of the selected suite, which keeps focused debugging commands short. `--list --suite partial` prints only the incomplete-request cases.
 
 Compare reasoning levels by producing one result for each level, then aggregate them:

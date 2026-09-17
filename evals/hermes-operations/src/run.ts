@@ -19,6 +19,7 @@ interface Options {
   list: boolean;
   verbose: boolean;
   suite: "core" | "partial" | "all";
+  toolVisibility: "routed" | "full";
 }
 
 function parseArgs(argv: string[]): Options {
@@ -32,6 +33,7 @@ function parseArgs(argv: string[]): Options {
     list: false,
     verbose: false,
     suite: "core",
+    toolVisibility: "routed",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -43,12 +45,14 @@ function parseArgs(argv: string[]): Options {
     else if (arg === "--provider" && value) { options.provider = value; index += 1; }
     else if (arg === "--reasoning" && value) { options.reasoning = value as ReasoningEffort; index += 1; }
     else if (arg === "--suite" && value) { options.suite = value as Options["suite"]; index += 1; }
+    else if (arg === "--tool-visibility" && value) { options.toolVisibility = value as Options["toolVisibility"]; index += 1; }
     else if (arg === "--scenario" && value) { options.scenarioIds.push(...value.split(",")); index += 1; }
     else if (arg === "--out" && value) { options.outDir = value; index += 1; }
     else throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
   if (!["none", "minimal", "low", "medium", "high", "max"].includes(options.reasoning)) throw new Error(`Unsupported reasoning effort: ${options.reasoning}`);
   if (!["core", "partial", "all"].includes(options.suite)) throw new Error(`Unsupported eval suite: ${options.suite}`);
+  if (!["routed", "full"].includes(options.toolVisibility)) throw new Error(`Unsupported tool visibility: ${options.toolVisibility}`);
   return options;
 }
 
@@ -146,7 +150,7 @@ function renderMarkdown(run: EvalRun): string {
     `# Hermes operations eval — ${run.runId}`,
     "",
     `Model: \`${run.model}\` via \`${run.provider}\`; reasoning: \`${run.reasoning}\``,
-    `Suite: \`${run.suite}\``,
+    `Suite: \`${run.suite}\`; tool visibility: \`${run.toolVisibility}\``,
     "",
     "| Scenario | Locale | Pass | Hops | Tools | Envelopes | Input | Cache read | Reasoning | Output | Cost USD |",
     "|---|---:|:---:|---:|---:|---:|---:|---:|---:|---:|---:|",
@@ -210,6 +214,7 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
         CAFE_EVAL_API_TOKEN: api.token,
         CAFE_EVAL_UPLOAD_ROOT: tempDir,
         CAFE_TOOL_ROUTER_CLI: path.join(projectRoot, "services/cafe-mcp/dist/tool-router-cli.js"),
+        CAFE_TOOL_VISIBILITY_MODE: options.toolVisibility,
         CAFE_HARNESS_EVENT_FILE: harnessEventPath,
         CAFE_QWEN_OUTPUT_TOKEN_CAP: maxReasoning ? "32768" : "16384",
         CAFE_HARNESS_COMPLETION_BUDGET: maxReasoning ? "65536" : "8192",
@@ -276,7 +281,9 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
 function summarize(run: Omit<EvalRun, "summary">): EvalRun["summary"] {
   const turns = run.scenarios.flatMap((scenario) => scenario.turns);
   const routerEvents = turns.flatMap((turn) => turn.harnessEvents)
-    .filter((event) => event.event === "router" && event.model !== "pending-confirmation-bypass");
+    .filter((event) => event.event === "router"
+      && event.model !== "pending-confirmation-bypass"
+      && event.model !== "full-catalog");
   const mainTokens = turns.reduce((sum, turn) => sum + Number(turn.usage.total_tokens ?? 0), 0);
   const mainCost = turns.reduce((sum, turn) => sum + Number(turn.usage.estimated_cost_usd ?? 0), 0);
   const routerInput = routerEvents.reduce((sum, event) => sum + Number(event.input_tokens ?? 0), 0);
@@ -330,9 +337,9 @@ async function main(): Promise<void> {
   await fs.writeFile(path.join(tempDir, "eval-receipt.png"), "Cafe OS eval receipt fixture\n");
   const api = new MockCafeApi();
   const apiUrl = await api.start();
-  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${options.suite}-${options.reasoning}`;
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${options.suite}-${options.toolVisibility}-${options.reasoning}`;
   const logPath = path.join(outDir, runId + ".events.jsonl");
-  await fs.writeFile(logPath, JSON.stringify({ event: "run_started", runId, suite: options.suite, model: options.model, provider: options.provider, reasoning: options.reasoning, scenarios: selected.map((scenario) => scenario.id) }) + "\n");
+  await fs.writeFile(logPath, JSON.stringify({ event: "run_started", runId, suite: options.suite, toolVisibility: options.toolVisibility, model: options.model, provider: options.provider, reasoning: options.reasoning, scenarios: selected.map((scenario) => scenario.id) }) + "\n");
   try {
     const scenarioResults: ScenarioResult[] = [];
     const scenarioSessions = new Set<string>();
@@ -346,7 +353,7 @@ async function main(): Promise<void> {
       if (scenarioSession) scenarioSessions.add(scenarioSession);
       scenarioResults.push(result);
     }
-    const base = { runId, startedAt: new Date().toISOString(), model: options.model, provider: options.provider, profile: options.profile, suite: options.suite, reasoning: options.reasoning, scenarios: scenarioResults };
+    const base = { runId, startedAt: new Date().toISOString(), model: options.model, provider: options.provider, profile: options.profile, suite: options.suite, toolVisibility: options.toolVisibility, reasoning: options.reasoning, scenarios: scenarioResults };
     const run: EvalRun = { ...base, summary: summarize(base) };
     const jsonPath = path.join(outDir, `${runId}.json`);
     const markdownPath = path.join(outDir, `${runId}.md`);
