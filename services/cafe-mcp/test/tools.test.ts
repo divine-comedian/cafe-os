@@ -88,6 +88,11 @@ describe("Cafe OS MCP tools", () => {
 
   it("combines exact lookup and filtered lists in one read tool", async () => {
     const providerId = "8cbfaf51-b489-4d2e-86a6-c31a9d726c24";
+    api.responses.push(
+      { data: { id: providerId, name: "Sierra" } },
+      { data: [{ id: providerId, name: "Sierra" }], meta: { match_count: 1, exact_match_count: 1 } },
+      { data: [], meta: { match_count: 0 } },
+    );
     await client.callTool({
       name: "query_records",
       arguments: { resource: "provider", id: providerId },
@@ -119,6 +124,40 @@ describe("Cafe OS MCP tools", () => {
         body: undefined,
       },
     ]);
+  });
+
+  it("returns bounded name suggestions after a likely transcription miss", async () => {
+    api.responses.push(
+      {
+        data: [],
+        meta: { match_count: 0, exact_match_count: 0, exact_match_ids: [], applied_filters: { name: "Choi" } },
+      },
+      {
+        data: [
+          { id: crypto.randomUUID(), name: "Chuy's Basement", region: "sonora" },
+          { id: crypto.randomUUID(), name: "Finca Norte", region: "veracruz" },
+        ],
+        meta: { match_count: 2 },
+      },
+    );
+    const response = await client.callTool({
+      name: "query_records",
+      arguments: { resource: "provider", name: "Choi" },
+    });
+    expect(response.isError).not.toBe(true);
+    expect(api.calls).toEqual([
+      { method: "GET", route: "/providers?limit=50&offset=0&name=Choi", body: undefined },
+      { method: "GET", route: "/providers?limit=100&offset=0", body: undefined },
+    ]);
+    expect(response.structuredContent).toMatchObject({
+      data: [],
+      meta: {
+        match_count: 0,
+        suggestion_count: 1,
+        name_suggestions: [{ name: "Chuy's Basement", region: "sonora", similarity: 0.5 }],
+      },
+    });
+    expect(JSON.stringify(response.structuredContent)).not.toContain("Finca Norte");
   });
 
   it("resolves a provider name and filters its purchase in one model-facing call", async () => {
@@ -158,6 +197,10 @@ describe("Cafe OS MCP tools", () => {
 
   it("uses one typed update tool for all record kinds", async () => {
     const id = "5b8eddb3-dbc2-4c48-b33d-f8acc512681a";
+    api.responses.push(
+      { data: { id, name: "Lote Norte" } },
+      { data: { id, name: "Lote Norte", origin: "Chiapas", variety: "Bourbon" } },
+    );
     const prepared = await client.callTool({
       name: "update_record",
       arguments: {
@@ -167,7 +210,14 @@ describe("Cafe OS MCP tools", () => {
       },
     });
     expect(prepared.isError).not.toBe(true);
-    expect(api.calls).toHaveLength(0);
+    expect(api.calls).toEqual([
+      { method: "GET", route: `/green-coffee-lots/${id}`, body: undefined },
+    ]);
+    expect(prepared.structuredContent).toMatchObject({
+      pending_confirmation: {
+        display_target: { resource: "green_coffee_lot", name: "Lote Norte" },
+      },
+    });
     const confirmationId = ((prepared.structuredContent as Record<string, unknown> | undefined)
       ?.pending_confirmation as Record<string, unknown>).id;
     const response = await client.callTool({
@@ -176,6 +226,7 @@ describe("Cafe OS MCP tools", () => {
     });
     expect(response.isError).not.toBe(true);
     expect(api.calls).toEqual([
+      { method: "GET", route: `/green-coffee-lots/${id}`, body: undefined },
       {
         method: "PATCH",
         route: `/green-coffee-lots/${id}`,

@@ -166,6 +166,80 @@ function payloadMeta(payload: unknown): Record<string, unknown> {
     : {};
 }
 
+function normalizedName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/['’]s\b/gu, "")
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim();
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
+function nameSimilarity(query: string, candidate: string): number {
+  const needle = normalizedName(query);
+  const values = [normalizedName(candidate), ...normalizedName(candidate).split(" ")].filter(Boolean);
+  if (!needle || !values.length) return 0;
+  return Math.max(...values.map((value) =>
+    1 - editDistance(needle, value) / Math.max(needle.length, value.length)));
+}
+
+function nameSuggestions(query: string, rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows
+    .flatMap((row) => {
+      if (typeof row.name !== "string") return [];
+      const similarity = nameSimilarity(query, row.name);
+      if (similarity < 0.45) return [];
+      return [{
+        name: row.name,
+        ...(typeof row.region === "string" ? { region: row.region } : {}),
+        ...(typeof row.origin === "string" ? { origin: row.origin } : {}),
+        similarity: Number(similarity.toFixed(2)),
+      }];
+    })
+    .sort((left, right) => Number(right.similarity) - Number(left.similarity)
+      || String(left.name).localeCompare(String(right.name)))
+    .slice(0, 3);
+}
+
+async function withNameSuggestions(
+  client: CafeApiPort,
+  resource: "provider" | "green_coffee_lot" | "roast_batch",
+  query: string,
+  payload: unknown,
+): Promise<unknown> {
+  if (arrayData(payload).length) return payload;
+  const all = await client.request("GET", `${route(resource)}?limit=100&offset=0`);
+  const suggestions = nameSuggestions(query, arrayData(all));
+  return {
+    data: [],
+    meta: {
+      ...payloadMeta(payload),
+      name_suggestions: suggestions,
+      suggestion_count: suggestions.length,
+      suggestion_instruction: suggestions.length
+        ? "These are possible transcription or spelling matches, not resolved records. Ask the user to confirm the intended name, then query that exact name in the next turn before writing."
+        : "No close display-name match was found.",
+    },
+  };
+}
+
 async function traceability(client: CafeApiPort, lotPayload: unknown): Promise<unknown> {
   const lots = Array.isArray(envelopeData(lotPayload))
     ? arrayData(lotPayload)
@@ -233,7 +307,7 @@ export function registerCafeTools(
     {
       title: "Cafe OS — Query records",
       description:
-        "Read one Cafe OS record by UUID or search/list records. For purchases named by provider, use resource=purchase with provider_name plus optional purchased_at/status in one call. Name searches return every partial candidate plus exact_match_count and exact_match_ids; one exact full-name match is unambiguous even when longer partial matches also exist. Never choose when multiple plausible matches remain. For traceability, resolve a lot name once, then query its ID with include=traceability instead of reading each relation. Never changes database state.",
+        "Read one Cafe OS record by UUID or search/list records. For purchases named by provider, use resource=purchase with provider_name plus optional purchased_at/status in one call. Name searches return every partial candidate plus exact_match_count and exact_match_ids; a zero-match search also returns bounded near-name suggestions for likely speech-to-text or spelling errors. Suggestions are never resolved automatically: ask the user to confirm one, then query its exact name before writing. One exact full-name match is unambiguous even when longer partial matches also exist. Never choose when multiple plausible matches remain. For traceability, resolve a lot name once, then query its ID with include=traceability instead of reading each relation. Never changes database state.",
       inputSchema: z.object({
         resource: z.enum(["provider", "purchase", "green_coffee_lot", "roast_batch"]),
         id: uuid.optional().describe("When present, return exactly this record"),
@@ -272,9 +346,15 @@ export function registerCafeTools(
           if (filters.provider_id !== undefined) {
             throw new Error("VALIDATION_ERROR: use provider_id or provider_name, not both.");
           }
-          const providerPayload = await client.request(
+          const initialProviderPayload = await client.request(
             "GET",
             `/providers?limit=50&offset=0&name=${encodeURIComponent(providerName)}`,
+          );
+          const providerPayload = await withNameSuggestions(
+            client,
+            "provider",
+            providerName,
+            initialProviderPayload,
           );
           const candidates = arrayData(providerPayload);
           const requested = providerName.trim().toLocaleLowerCase();
@@ -304,7 +384,10 @@ export function registerCafeTools(
         for (const [key, value] of Object.entries(filters)) {
           if (value !== undefined && allowed[resource].includes(key)) params.set(key, String(value));
         }
-        const payload = await client.request("GET", `${route(resource)}?${params.toString()}`);
+        const initialPayload = await client.request("GET", `${route(resource)}?${params.toString()}`);
+        const payload = typeof filters.name === "string" && resource !== "purchase"
+          ? await withNameSuggestions(client, resource, filters.name, initialPayload)
+          : initialPayload;
         if (include) return traceability(client, payload);
         return resolvedProvider
           ? {
@@ -448,14 +531,33 @@ export function registerCafeTools(
         idempotentHint: true,
       },
     },
-    async (input) => safely(() => pendingMutation(pending, "update_record", input, async (stored) => {
-      const resource = stored.resource as Resource;
-      return storedReceipt(
-        await client.request("PATCH", route(resource, String(stored.id)), stored.fields as JsonObject),
-        "update",
-        resource,
-      );
-    })),
+    async (input) => safely(async () => {
+      let target: Record<string, unknown> | null = null;
+      if (typeof input.confirmation_id !== "string") {
+        target = objectData(await client.request(
+          "GET",
+          route(input.resource as Resource, String(input.id)),
+        ));
+      }
+      const response = await pendingMutation(pending, "update_record", input, async (stored) => {
+        const resource = stored.resource as Resource;
+        return storedReceipt(
+          await client.request("PATCH", route(resource, String(stored.id)), stored.fields as JsonObject),
+          "update",
+          resource,
+        );
+      });
+      if (target && response && typeof response === "object" && "pending_confirmation" in response) {
+        const confirmation = (response as { pending_confirmation: Record<string, unknown> }).pending_confirmation;
+        confirmation.display_target = {
+          resource: input.resource,
+          ...(typeof target.name === "string" ? { name: target.name } : {}),
+          ...(typeof target.purchased_at === "string" ? { purchased_at: target.purchased_at } : {}),
+          ...(typeof target.roasted_at === "string" ? { roasted_at: target.roasted_at } : {}),
+        };
+      }
+      return response;
+    }),
   );
 
   server.registerTool(

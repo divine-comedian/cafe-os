@@ -227,7 +227,7 @@ def _pending_from_messages(messages: Any) -> tuple[str, str] | None:
     confirmation_words = ("confirm", "sí", "si,", "yes", "approved", "apruebo", "guarda", "save", "void", "delete")
     if not any(word in latest_user for word in confirmation_words):
         return None
-    completed_tools: set[str] = set()
+    closed_tools: set[str] = set()
     for message in reversed(messages):
         if not isinstance(message, dict) or message.get("role") != "tool":
             continue
@@ -238,12 +238,16 @@ def _pending_from_messages(messages: Any) -> tuple[str, str] | None:
         structured = value.get("structuredContent") if isinstance(value.get("structuredContent"), dict) else value
         if isinstance(structured.get("operation_receipt"), dict):
             if message_tool:
-                completed_tools.add(message_tool)
+                closed_tools.add(message_tool)
+            continue
+        if structured.get("ok") is False or "error" in structured or "api_error" in structured:
+            if message_tool:
+                closed_tools.add(message_tool)
             continue
         pending = structured.get("pending_confirmation") if isinstance(structured, dict) else None
         if (isinstance(pending, dict) and isinstance(pending.get("tool_name"), str)
                 and isinstance(pending.get("id"), str)
-                and pending["tool_name"] not in completed_tools):
+                and pending["tool_name"] not in closed_tools):
             return pending["tool_name"], pending["id"]
     return None
 
@@ -334,6 +338,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "tool_result_chars": 0,
             "duplicate_calls": 0,
             "post_write_reads": 0,
+            "resolved_ids": {},
             "missing_required_fields": missing_required_fields,
             "blocking_missing_fields": requires_user_input,
             "lookup_resource": lookup_resource,
@@ -538,6 +543,16 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     messages.append({
         "role": "system",
         "content": (
+            "In every user-facing reply, identify Cafe OS records by their human-readable name. "
+            "Do not print record UUIDs, confirmation IDs, request IDs, raw tool calls, or raw tool errors "
+            "unless the user explicitly asks for IDs or diagnostics. If a record has no name, use a concise "
+            "human-readable description such as its record type plus date or status. Internal IDs may be used "
+            "only inside tool arguments."
+        ),
+    })
+    messages.append({
+        "role": "system",
+        "content": (
             "Response language for this turn: English only. Do not switch languages because a prior "
             "assistant response or stored record uses Spanish. Preserve stored calendar dates exactly "
             "in YYYY-MM-DD format; do not localize them. State units on every operational number."
@@ -584,6 +599,40 @@ def _pre_tool_call(*, tool_name: str = "", args: Any = None, session_id: str = "
         return {"action": "block", "message": "POLICY_UNKNOWN_TOOL: the Cafe tool is not in the authorized catalog."}
     if short not in state.get("visible", set()):
         return {"action": "block", "message": "POLICY_INACTIVE_TOOL: the tool phase is closed or this tool is not active."}
+    if state.get("full_catalog") and not state.get("pending_bypass") and isinstance(args, dict):
+        references: list[tuple[str, str]] = []
+        resource = str(args.get("resource") or "")
+        if short in {"update_record", "set_record_status", "delete_record"} and resource and isinstance(args.get("id"), str):
+            references.append((resource, args["id"]))
+        elif short == "upload_purchase_document" and isinstance(args.get("purchase_id"), str):
+            references.append(("purchase", args["purchase_id"]))
+        elif short == "create_purchase":
+            if isinstance(args.get("provider_id"), str):
+                references.append(("provider", args["provider_id"]))
+            if isinstance(args.get("green_coffee_lot_id"), str):
+                references.append(("green_coffee_lot", args["green_coffee_lot_id"]))
+        elif short == "create_roast_batch" and isinstance(args.get("green_coffee_lot_id"), str):
+            references.append(("green_coffee_lot", args["green_coffee_lot_id"]))
+        fields = args.get("fields")
+        if short == "update_record" and isinstance(fields, dict):
+            if isinstance(fields.get("provider_id"), str):
+                references.append(("provider", fields["provider_id"]))
+            if isinstance(fields.get("green_coffee_lot_id"), str):
+                references.append(("green_coffee_lot", fields["green_coffee_lot_id"]))
+        resolved = state.get("resolved_ids", {})
+        unresolved = [
+            resource_name for resource_name, record_id in references
+            if record_id not in resolved.get(resource_name, set())
+        ]
+        if unresolved:
+            resources = ", ".join(sorted(set(unresolved)))
+            return {
+                "action": "block",
+                "message": (
+                    "POLICY_UNRESOLVED_REFERENCE: resolve the target with query_records in this turn before "
+                    f"preparing the mutation. Missing verified resource: {resources}. Never invent or reuse an ID."
+                ),
+            }
     signature = _canonical_signature(tool_name, args)
     confirmation_id = args.get("confirmation_id") if isinstance(args, dict) else None
     if isinstance(confirmation_id, str) and confirmation_id not in state.get("pending_ids", set()):
@@ -642,6 +691,22 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
             applied_filters = meta.get("applied_filters") if isinstance(meta, dict) else None
             queried_resource = str(args.get("resource") or state.get("lookup_resource") or "") \
                 if isinstance(args, dict) else str(state.get("lookup_resource") or "")
+            data = structured.get("data")
+            rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+            returned_ids = {
+                str(row["id"]) for row in rows
+                if isinstance(row, dict) and isinstance(row.get("id"), str)
+            }
+            if queried_resource and returned_ids:
+                resolved_ids = state.setdefault("resolved_ids", {})
+                resolved_ids.setdefault(queried_resource, set()).update(returned_ids)
+                _event(
+                    "references_resolved",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    resource=queried_resource,
+                    count=len(returned_ids),
+                )
             if state.get("blocking_missing_fields"):
                 state["stop_tools"] = True
                 state["terminal_reason"] = "needs_input"

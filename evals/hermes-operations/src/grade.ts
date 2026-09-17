@@ -39,6 +39,12 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
   if (expectation.maxApiCalls !== undefined) results.push(check(Number(usage.api_calls ?? 0) <= expectation.maxApiCalls, `model hops <= ${expectation.maxApiCalls}; got ${usage.api_calls ?? 0}`));
   if (expectation.mutationCount !== undefined) results.push(check(operations.length === expectation.mutationCount, `REST mutations = ${expectation.mutationCount}; got ${operations.length}`));
   for (const pattern of expectation.responsePatterns ?? []) results.push(check(new RegExp(pattern, "iu").test(response), `response matches /${pattern}/iu`));
+  if (!expectation.allowResponseIds) {
+    results.push(check(
+      !/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/iu.test(response),
+      "user-facing reply hides internal UUIDs",
+    ));
+  }
   for (const expected of expectation.stateContains ?? []) {
     const found = state[expected.table].some((row) => containsFields(row, expected.fields));
     results.push(check(found, `state contains matching ${expected.table} record`));

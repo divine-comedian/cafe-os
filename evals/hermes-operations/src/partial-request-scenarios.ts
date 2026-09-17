@@ -188,6 +188,42 @@ export const partialRequestScenarios: EvalScenario[] = [
     ],
   },
   {
+    id: "partial_en_voice_typo_provider_update",
+    locale: "en",
+    description: "Suggest a close provider name after a voice-transcription typo, then resolve it exactly before proposing an update.",
+    turns: [
+      {
+        prompt: "[Voice transcript] Add the note ‘prefers WhatsApp’ to Finco Norte.",
+        expect: {
+          requiredTools: ["query_records"], allowedTools: ["query_records"],
+          minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0,
+          responsePatterns: ["Finca Norte", "mean|confirm|intended"],
+          terminalReason: "completed",
+        },
+      },
+      {
+        prompt: "Yes, I meant Finca Norte. Prepare only that notes change.",
+        expect: {
+          requiredTools: ["query_records", "update_record"], allowedTools: ["query_records", "update_record"],
+          minToolCalls: 2, maxToolCalls: 2, maxApiCalls: 3, mutationCount: 0,
+          responsePatterns: ["Finca Norte", "prefers WhatsApp", "confirm"],
+          toolCallContains: [{ name: "update_record", arguments: { resource: "provider", id: IDS.fincaNorte, fields: { notes: "prefers WhatsApp" } } }],
+          terminalReason: "needs_confirmation",
+        },
+      },
+      {
+        prompt: "Confirm only that note change.",
+        expect: {
+          requiredTools: ["update_record"], allowedTools: ["update_record"],
+          minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
+          confirmationTools: ["update_record"], terminalReason: "completed",
+          responsePatterns: ["Finca Norte"],
+          stateContains: [{ table: "providers", fields: { id: IDS.fincaNorte, notes: "prefers WhatsApp" } }],
+        },
+      },
+    ],
+  },
+  {
     id: "partial_es_uncertain_voice_note",
     locale: "es-MX",
     description: "Recover an uncertain voice-note purchase through focused follow-ups without best-effort filling.",
