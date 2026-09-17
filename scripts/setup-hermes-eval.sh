@@ -54,7 +54,7 @@ hermes -p "$profile_name" config set agent.max_turns 19
 hermes -p "$profile_name" config set --force agent.disabled_toolsets \
   '["web","browser","terminal","file","skills","todo","memory","session_search","code_execution","delegation","cronjob","tts","vision","image_gen","video_gen","computer_use","clarify","connections","homeassistant","kanban"]'
 hermes -p "$profile_name" config set agent.budget_warning_ratio 0.8
-hermes -p "$profile_name" config set agent.run_budget_seconds 90
+hermes -p "$profile_name" config set agent.run_budget_seconds 180
 hermes -p "$profile_name" config set model.max_tokens 16384
 hermes -p "$profile_name" config set platforms.telegram.enabled false
 hermes -p "$profile_name" config set platforms.discord.enabled false

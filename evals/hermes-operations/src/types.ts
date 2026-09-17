@@ -1,5 +1,5 @@
 export type Locale = "es-MX" | "en";
-export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "max";
 export type TableName = "providers" | "purchases" | "green_coffee_lots" | "roast_batches";
 export type Row = Record<string, unknown> & { id: string };
 

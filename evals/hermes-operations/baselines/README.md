@@ -13,3 +13,5 @@ The `*-full.json` and matching Markdown file capture the first complete 18-scena
 `2026-09-16-glm5.3-partial-reasoning-comparison.md` compares GLM 5.3 at low and high reasoning against that Qwen partial-request baseline. It records GLM's improved canonical tool-name fidelity, the high-reasoning 6/7 score, its higher cost, and the remaining reproducible ordered-lookup failure.
 
 `2026-09-17-qwen3.8-flash-high-partial.md` compares Qwen3.8 Flash high reasoning with its medium baseline. High reached 6/7 scenarios without malformed tool names while reducing measured cost and wall time, but a focused retry confirms the longest voice-note workflow remains nondeterministic.
+
+`2026-09-17-qwen3.8-flash-max-partial.md` records the max-reasoning run with expanded evaluation-only output, completion, and wall-clock budgets. Max regressed to 4/7 despite ample unused headroom, establishing high as the better Qwen3.8 Flash tier for this workload.

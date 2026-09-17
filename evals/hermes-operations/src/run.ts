@@ -47,7 +47,7 @@ function parseArgs(argv: string[]): Options {
     else if (arg === "--out" && value) { options.outDir = value; index += 1; }
     else throw new Error(`Unknown or incomplete argument: ${arg}`);
   }
-  if (!["none", "minimal", "low", "medium", "high"].includes(options.reasoning)) throw new Error(`Unsupported reasoning effort: ${options.reasoning}`);
+  if (!["none", "minimal", "low", "medium", "high", "max"].includes(options.reasoning)) throw new Error(`Unsupported reasoning effort: ${options.reasoning}`);
   if (!["core", "partial", "all"].includes(options.suite)) throw new Error(`Unsupported eval suite: ${options.suite}`);
   return options;
 }
@@ -185,6 +185,7 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
   let sessionId: string | undefined;
   const turns: TurnResult[] = [];
   for (const [turnIndex, turn] of scenario.turns.entries()) {
+    const maxReasoning = options.reasoning === "max";
     const prompt = turn.prompt.replaceAll("{{UPLOAD_FIXTURE_PATH}}", path.join(tempDir, "eval-receipt.png"));
     const beforeOperations = api.operations.length;
     const usagePath = path.join(tempDir, `${scenario.id}-${turnIndex}-usage.json`);
@@ -210,8 +211,12 @@ async function runScenario(scenario: EvalScenario, options: Options, projectRoot
         CAFE_EVAL_UPLOAD_ROOT: tempDir,
         CAFE_TOOL_ROUTER_CLI: path.join(projectRoot, "services/cafe-mcp/dist/tool-router-cli.js"),
         CAFE_HARNESS_EVENT_FILE: harnessEventPath,
+        CAFE_QWEN_OUTPUT_TOKEN_CAP: maxReasoning ? "32768" : "16384",
+        CAFE_HARNESS_COMPLETION_BUDGET: maxReasoning ? "65536" : "8192",
+        CAFE_HARNESS_MAX_HOP_TOKENS: maxReasoning ? "16384" : "4096",
+        CAFE_HARNESS_COMPLETION_RESERVE: maxReasoning ? "2048" : "1024",
       },
-      timeoutMs: 120_000,
+      timeoutMs: maxReasoning ? 240_000 : 120_000,
     });
     let usage: UsageReport;
     try {

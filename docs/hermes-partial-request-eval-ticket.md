@@ -8,6 +8,8 @@ A follow-up model comparison found GLM 5.3 high passed 6/7 scenarios and 17/19 t
 
 Qwen3.8 Flash high also passed 6/7 scenarios, up from 3/7 at medium, without malformed tool names and at far lower cost than GLM. Its isolated voice-note retry still failed through missing proposal creation and an unsupported optional note, so reasoning alone does not close the state/provenance work in this ticket. See `evals/hermes-operations/baselines/2026-09-17-qwen3.8-flash-high-partial.md`.
 
+Qwen3.8 Flash max was tested with a 32,768-token wire ceiling, 16,384 tokens per hop, 65,536 aggregate completion tokens per turn, and a 180-second Hermes wall-clock budget. It regressed to 4/7 scenarios and more than doubled high's wall time while failing with most of the budget unused. Keep high as the preferred tier; the remaining work is deterministic orchestration rather than additional reasoning capacity. See `evals/hermes-operations/baselines/2026-09-17-qwen3.8-flash-max-partial.md`.
+
 The safety baseline is promising: none of the incomplete initial messages caused a REST mutation. The remaining work is state fidelity and efficient completion after the missing facts arrive.
 
 ## User behavior under test

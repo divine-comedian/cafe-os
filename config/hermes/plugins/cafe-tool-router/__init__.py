@@ -20,6 +20,19 @@ from typing import Any
 
 _CAFE_PREFIX = "mcp__cafe_os__"
 _DISCOVERY = "discover_tools"
+
+
+def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        value = default
+    return min(maximum, max(minimum, value))
+
+
+_COMPLETION_BUDGET = _bounded_env_int("CAFE_HARNESS_COMPLETION_BUDGET", 8_192, 2_048, 131_072)
+_MAX_HOP_TOKENS = _bounded_env_int("CAFE_HARNESS_MAX_HOP_TOKENS", 4_096, 1_024, 32_768)
+_COMPLETION_RESERVE = _bounded_env_int("CAFE_HARNESS_COMPLETION_RESERVE", 1_024, 512, 8_192)
 _PROPOSAL_REQUIRED = {
     "create_provider": ["name"],
     "create_purchase": ["provider_id", "green_coffee_lot_id", "received_weight_kg"],
@@ -351,7 +364,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         visible = set()
         terminal_reason = "hop_limit"
         state["terminal_reason"] = terminal_reason
-    elif int(state.get("completion_tokens", 0)) >= 7168:
+    elif int(state.get("completion_tokens", 0)) >= _COMPLETION_BUDGET - _COMPLETION_RESERVE:
         visible = set()
         terminal_reason = "token_limit"
         state["terminal_reason"] = terminal_reason
@@ -493,8 +506,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     })
     updated["messages"] = messages
     if "max_tokens" in updated:
-        remaining = max(1024, 8192 - int(state.get("completion_tokens", 0)))
-        updated["max_tokens"] = min(int(updated.get("max_tokens") or remaining), remaining, 4096)
+        remaining = max(_COMPLETION_RESERVE, _COMPLETION_BUDGET - int(state.get("completion_tokens", 0)))
+        updated["max_tokens"] = min(int(updated.get("max_tokens") or remaining), remaining, _MAX_HOP_TOKENS)
     _event(
         "model_hop",
         request_id=api_request_id,
@@ -502,7 +515,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         turn_id=turn_id,
         hop=int(api_call_count or 0),
         active_tools=sorted(visible),
-        completion_tokens_remaining=max(0, 8192 - int(state.get("completion_tokens", 0))),
+        max_tokens=int(updated.get("max_tokens") or 0),
+        completion_tokens_remaining=max(0, _COMPLETION_BUDGET - int(state.get("completion_tokens", 0))),
         tool_result_chars_remaining=max(0, 48000 - int(state.get("tool_result_chars", 0))),
         terminal_reason=terminal_reason,
     )

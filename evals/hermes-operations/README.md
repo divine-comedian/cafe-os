@@ -26,7 +26,7 @@ npm --prefix evals/hermes-operations install
 ```
 
 The `cafe-eval` profile clones model credentials and non-channel configuration from the active profile. Telegram and Discord remain disabled. Hermes native tool search and all general-purpose toolsets are disabled. The profile enables a reviewed middleware capability that filters each Qwen request to at most five router-selected Cafe tools. Router failure, an unusable selection, or an explicit discovery route exposes only Cafe discovery; a confident sufficient route does not expose discovery alongside its work tools. Its Cafe API URL, token, and temporary upload root are provided only by the runner process and point to isolated fixtures. The upload case creates a disposable receipt file under the run's temporary directory and removes it afterward.
-Hermes 0.21.3 intentionally ignores user-configured main-agent output caps, so setup installs the versioned `config/hermes/plugins/model-providers/openrouter` policy to enforce the ceiling on the actual OpenRouter wire request. The setup uses medium reasoning and keeps the configured emergency output ceiling at 16,384 tokens. The Cafe harness additionally enforces an 8,192-token aggregate completion budget per user turn, with at most 4,096 reserved by any one model hop; this avoids oversized billing reservations while preserving multi-hop reasoning headroom. Hermes permits one tool-free wrap-up call after its iteration budget is exhausted, so the profile uses 19 iterations for a hard ceiling of 20 model hops. It also applies an 80% completion checkpoint and a 90-second wall-clock budget.
+Hermes 0.21.3 intentionally ignores user-configured main-agent output caps, so setup installs the versioned `config/hermes/plugins/model-providers/openrouter` policy to enforce the ceiling on the actual OpenRouter wire request. Normal runs keep the configured emergency output ceiling at 16,384 tokens. The Cafe harness normally enforces an 8,192-token aggregate completion budget per user turn, with at most 4,096 reserved by any one model hop. A `--reasoning max` run receives evaluation-only headroom: a 32,768-token wire ceiling, 16,384 tokens per hop, a 65,536-token aggregate turn budget, and a 2,048-token wrap-up reserve. Hermes permits one tool-free wrap-up call after its iteration budget is exhausted, so the profile uses 19 iterations for a hard ceiling of 20 model hops. It also applies an 80% completion checkpoint and a 180-second wall-clock budget.
 
 ## Run
 
@@ -43,6 +43,7 @@ Run the full suite:
 
 ```bash
 npm --prefix evals/hermes-operations run eval -- --reasoning medium
+npm --prefix evals/hermes-operations run eval -- --reasoning max
 ```
 
 Run only incomplete-request behavior, or both catalogs:
