@@ -77,8 +77,7 @@ fi
   '["status","new","reset","usage","voice","stop"]'
 "$hermes_cmd" config set platforms.telegram.extra.group_user_allowed_commands \
   '["status","new","reset","usage","voice","stop"]'
-"$hermes_cmd" config set platform_toolsets.telegram \
-  "[cafe_os]"
+"$hermes_cmd" config set --force platform_toolsets.telegram '[]'
 
 "$hermes_cmd" config check
 
