@@ -1,0 +1,27 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci --prefix services/cafe-web",
+  "buildCommand": "npm run build --prefix services/cafe-web",
+  "outputDirectory": "services/cafe-api/public",
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "https://api.theworstaistudioever.com/v1/:path*"
+    },
+    {
+      "source": "/app-config.json",
+      "destination": "https://api.theworstaistudioever.com/app-config.json"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/v1/:path*",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    }
+  ]
+}
