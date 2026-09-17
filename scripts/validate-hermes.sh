@@ -44,12 +44,14 @@ check_command hermes
 check_command git
 check_command docker
 check_command ffmpeg
+check_command node
 
 check_env_value OPENROUTER_API_KEY
 check_env_value TELEGRAM_BOT_TOKEN
 check_env_value TELEGRAM_ALLOW_ALL_USERS
 check_env_value TELEGRAM_ALLOWED_USERS
 check_env_value CAFE_API_TOKEN
+check_env_value CAFE_TOOL_ROUTER_CLI
 if grep -Eq '^TELEGRAM_ALLOW_ALL_USERS=false$' "${HERMES_HOME:-$HOME/.hermes}/.env"; then
   printf 'ok   Telegram public access disabled\n'
 else

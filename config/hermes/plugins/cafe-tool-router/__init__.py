@@ -221,16 +221,23 @@ def _pending_from_messages(messages: Any) -> tuple[str, str] | None:
     confirmation_words = ("confirm", "sí", "si,", "yes", "approved", "apruebo", "guarda", "save", "void", "delete")
     if not any(word in latest_user for word in confirmation_words):
         return None
+    completed_tools: set[str] = set()
     for message in reversed(messages):
         if not isinstance(message, dict) or message.get("role") != "tool":
             continue
+        message_tool = _short_name(str(message.get("tool_name") or message.get("name") or ""))
         value = _json_content(message.get("content"))
         if not isinstance(value, dict):
             continue
         structured = value.get("structuredContent") if isinstance(value.get("structuredContent"), dict) else value
+        if isinstance(structured.get("operation_receipt"), dict):
+            if message_tool:
+                completed_tools.add(message_tool)
+            continue
         pending = structured.get("pending_confirmation") if isinstance(structured, dict) else None
         if (isinstance(pending, dict) and isinstance(pending.get("tool_name"), str)
-                and isinstance(pending.get("id"), str)):
+                and isinstance(pending.get("id"), str)
+                and pending["tool_name"] not in completed_tools):
             return pending["tool_name"], pending["id"]
     return None
 

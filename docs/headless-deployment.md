@@ -45,6 +45,8 @@ Only allowlisted IDs can consume model quota or access Cafe OS operations. For g
 
 The bootstrap also gates slash commands. Allowlisted operators can use `/help`, `/whoami`, `/status`, `/new`, `/reset`, `/usage`, `/voice`, and `/stop`; privileged commands are unavailable. Admin ID `0` is an intentional sentinel that matches no Telegram user, so administration remains SSH-only. To appoint a Telegram administrator later, replace `0` in both `allow_admin_from` settings with that trusted account's numeric user ID.
 
+Telegram is configured for final-response-only delivery. Tool progress, model reasoning, interim assistant narration, and streaming drafts remain available in server logs where appropriate but are not posted into the operator conversation.
+
 ## 4. Voice notes
 
 Inbound Telegram voice notes are enabled. The current provider is local `faster-whisper`, so audio stays on the server. Language detection is automatic for Spanish/English use. The base model is downloaded on first use and may take a moment.

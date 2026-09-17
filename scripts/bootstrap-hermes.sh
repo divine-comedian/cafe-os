@@ -67,6 +67,11 @@ fi
 "$hermes_cmd" config set approvals.mode smart
 "$hermes_cmd" config set gateway.systemd_watchdog_seconds 120
 "$hermes_cmd" config set display.background_process_notifications concise
+"$hermes_cmd" config set display.platforms.telegram.tool_progress '"off"'
+"$hermes_cmd" config set display.platforms.telegram.show_reasoning false
+"$hermes_cmd" config set display.platforms.telegram.interim_assistant_messages false
+"$hermes_cmd" config set display.platforms.telegram.streaming false
+"$hermes_cmd" config set display.tool_progress_command false
 
 "$hermes_home/hermes-agent/venv/bin/python" -c \
   "from hermes_cli.config import save_env_value_secure; save_env_value_secure('TELEGRAM_ALLOW_ALL_USERS', 'false')"
@@ -81,7 +86,7 @@ fi
 "$hermes_cmd" config set --force platform_toolsets.telegram '[]'
 
 if [ -f "$api_env" ]; then
-  "$hermes_home/hermes-agent/venv/bin/python" - "$api_env" <<'PY'
+  "$hermes_home/hermes-agent/venv/bin/python" - "$api_env" "$project_root/services/cafe-mcp/dist/tool-router-cli.js" <<'PY'
 from pathlib import Path
 import sys
 
@@ -95,7 +100,11 @@ for line in Path(sys.argv[1]).read_text().splitlines():
 token = values.get("CAFE_API_TOKEN", "").strip()
 if not token:
     raise SystemExit("CAFE_API_TOKEN is missing from the Cafe API runtime environment")
+router_cli = Path(sys.argv[2]).resolve()
+if not router_cli.is_file():
+    raise SystemExit(f"Cafe tool router is not built at {router_cli}")
 save_env_value_secure("CAFE_API_TOKEN", token)
+save_env_value_secure("CAFE_TOOL_ROUTER_CLI", str(router_cli))
 PY
   install -d -m 700 "$hermes_home/cache" "$hermes_home/state/cafe-mcp"
   mcp_config="$(node -e '

@@ -13,6 +13,7 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - Speech-to-text is enabled with the local provider.
 - Telegram uses Hermes' built-in adapter; Discord is disabled for the prototype.
 - Telegram accepts messages only from explicitly allowlisted operator IDs. Shell, file-write, cron, messaging, and shared-memory access remain disabled.
+- Telegram emits only the final conversational response; tool progress, reasoning, interim narration, and streaming drafts are hidden.
 - Remote admin slash commands are disabled; allowlisted operators receive only the documented safe command set.
 - The gateway runs as an enabled per-user systemd service and starts automatically at boot.
 - A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema and invite-only email Auth.
