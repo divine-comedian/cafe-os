@@ -230,7 +230,7 @@ class ToolPolicyTests(unittest.TestCase):
             tool("mcp__cafe_os__create_green_coffee_lot"),
             tool("mcp__cafe_os__create_purchase"),
             tool("mcp__cafe_os__delete_record"),
-            tool("mcp__cafe_os__set_record_status"),
+            tool("mcp__cafe_os__void_roast_batch"),
         ]
         request = {"messages": messages, "tools": catalog, "max_tokens": 16_384}
         updated = MODULE._llm_request(

@@ -42,14 +42,12 @@ The frontend purchase flow associates a purchase with an existing lot or creates
 
 ```text
 POST /v1/purchases/with-green-coffee-lot  # create active purchase
-POST /v1/roast-batches/confirmed          # create confirmed roast batch
+POST /v1/roast-batches                    # create progressive roast batch
 ```
 
-Only roast batches expose explicit confirmation and void actions. Purchases are active when created and have no status:
+All records are active when created and have no draft or confirmed status. Roast measurements can be added progressively with `PATCH`. An erroneous roast can be voided without deleting it:
 
 ```text
-POST /v1/roast-batches/{id}/confirm
-PUT  /v1/roast-batches/{id}/confirm  # update fields and confirm atomically
 POST /v1/roast-batches/{id}/void
 ```
 
@@ -73,7 +71,7 @@ The upload route accepts one multipart field named `file`. The service validates
 - Currency is trimmed and uppercased to a three-letter value.
 - Positive/nonnegative number checks mirror the database constraints.
 - Foreign-key parents are checked before writes.
-- Roast input cannot exceed purchased weight for its lot minus green input reserved by other non-void roasts.
+- Roast input cannot exceed purchased weight for its lot minus green input reserved by other non-voided roasts.
 - Deletes return `409 DEPENDENCY_CONFLICT` when child records or a purchase document exist.
 - PDFs, JPEGs, PNGs, WebP images, and HEIC images are accepted up to 15 MiB.
 

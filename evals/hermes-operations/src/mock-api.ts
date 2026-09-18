@@ -168,7 +168,11 @@ export class MockCafeApi {
     if (method === "POST" && !id) {
       const body = await readJson(request);
       const created: Row = { id: nextId(this.counter++), ...normalizeRow(table, body) };
-      if (table === "roast_batches") created.status = "draft";
+      if (table === "roast_batches") {
+        created.voided_at = null;
+        created.void_reason = null;
+        created.checkpoints ??= [];
+      }
       if (table === "purchases") {
         if (!("currency" in created)) created.currency = "MXN";
         created.document_path = null;
@@ -202,10 +206,11 @@ export class MockCafeApi {
       });
     }
 
-    if (method === "POST" && table === "roast_batches"
-        && (action === "confirmed" || action === "void" || action === "confirm")) {
-      row.status = action === "void" ? "void" : "confirmed";
-      this.operations.push({ method, path: url.pathname });
+    if (method === "POST" && table === "roast_batches" && action === "void") {
+      const body = await readJson(request);
+      row.voided_at = new Date().toISOString();
+      row.void_reason = body.reason ?? null;
+      this.operations.push({ method, path: url.pathname, body });
       return json(response, 200, { data: row });
     }
 

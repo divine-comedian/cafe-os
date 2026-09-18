@@ -51,14 +51,14 @@ export function weightedGreenUnitCost(
 export function greenCoffeeInventory(
   lotId: string,
   purchases: Array<{ green_coffee_lot_id: string; received_weight_kg: string | number }>,
-  roasts: Array<{ id: string; green_coffee_lot_id: string; status: string; green_input_kg: string | number | null }>,
+  roasts: Array<{ id: string; green_coffee_lot_id: string; voided_at: string | null; green_input_kg: string | number | null }>,
   excludeRoastId?: string,
 ) {
   const purchasedKg = purchases
     .filter((purchase) => purchase.green_coffee_lot_id === lotId)
     .reduce((sum, purchase) => sum + Number(purchase.received_weight_kg || 0), 0);
   const reservedKg = roasts
-    .filter((roast) => roast.green_coffee_lot_id === lotId && roast.status !== "void" && roast.id !== excludeRoastId)
+    .filter((roast) => roast.green_coffee_lot_id === lotId && !roast.voided_at && roast.id !== excludeRoastId)
     .reduce((sum, roast) => sum + Number(roast.green_input_kg || 0), 0);
   return { purchasedKg, reservedKg, availableKg: Math.max(0, purchasedKg - reservedKg) };
 }

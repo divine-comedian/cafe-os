@@ -53,7 +53,7 @@ Production uses the full Cafe tool catalog, so an ordinary Telegram turn does no
 
 Telegram conversations have no idle timeout: a routed conversation remains active across quiet periods and gateway restarts. Only an explicit `/new` or `/reset`, `/stop`, or an unrecoverable context-compression boundary starts a replacement session. Pending Cafe proposals are stored separately under `~/.hermes/state/cafe-mcp`, survive gateway restarts, and remain resumable for seven days by default. Natural approvals such as “ship it,” “I approve it,” “go ahead,” and “sí, guárdalo” resume the exact stored proposal.
 
-For a request that requires several related records, the bot presents one consolidated field list. One approval authorizes all non-destructive creates, updates, and evidence uploads named in that prompt during the confirmation turn, up to eight writes. It does not authorize an unlisted action, a deletion, or confirming/voiding a roast; those remain separate approvals. Purchases and green-coffee lots have no status and are active when created.
+For a request that requires several related records, the bot presents one consolidated field list. One approval authorizes all non-destructive creates, updates, and evidence uploads named in that prompt during the confirmation turn, up to eight writes. It does not authorize an unlisted action, a deletion, or voiding a roast; those remain separate approvals. Records have no draft or confirmed status and are active when created.
 
 ## 4. Voice notes
 

@@ -121,7 +121,7 @@ export const partialRequestScenarios: EvalScenario[] = [
   {
     id: "partial_es_roast_lot_only",
     locale: "es-MX",
-    description: "Allow a roast draft with only its required source lot and leave all measurements unknown.",
+    description: "Allow a progressive roast with only its required source lot and leave all measurements unknown.",
     turns: [
       {
         prompt: "Prepara un tueste del lote Chiapas lavado. Todavía no tengo nombre, fecha, pesos, duración, ajustes ni notas.",
@@ -135,12 +135,12 @@ export const partialRequestScenarios: EvalScenario[] = [
         },
       },
       {
-        prompt: "Sí, guarda ese borrador incompleto tal cual.",
+        prompt: "Sí, guarda ese registro incompleto tal cual.",
         expect: {
           requiredTools: ["create_roast_batch"], allowedTools: ["create_roast_batch"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
           confirmationTools: ["create_roast_batch"], terminalReason: "completed",
-          stateContains: [{ table: "roast_batches", fields: { green_coffee_lot_id: IDS.greenLot, status: "draft" } }],
+          stateContains: [{ table: "roast_batches", fields: { green_coffee_lot_id: IDS.greenLot, voided_at: null } }],
         },
       },
     ],

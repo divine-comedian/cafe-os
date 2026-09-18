@@ -79,13 +79,22 @@ export async function greenCoffeeInventory(
   const purchasedKg = purchases
     .reduce((sum, purchase) => sum + Number(purchase.received_weight_kg || 0), 0);
   const reservedKg = roasts
-    .filter((roast) => roast.status !== "void" && roast.id !== excludeRoastId)
+    .filter((roast) => !roast.voided_at && roast.id !== excludeRoastId)
     .reduce((sum, roast) => sum + Number(roast.green_input_kg || 0), 0);
   return {
     purchasedKg,
     reservedKg,
     availableKg: Math.max(0, purchasedKg - reservedKg),
   };
+}
+
+export function roastCompletion(roast: Row): {
+  is_complete: boolean;
+  missing_fields: string[];
+} {
+  const missingFields = ["roast_date", "green_input_kg", "roasted_output_kg"]
+    .filter((field) => roast[field] === null || roast[field] === undefined);
+  return { is_complete: missingFields.length === 0, missing_fields: missingFields };
 }
 
 export async function requireAvailableGreenCoffee(

@@ -85,11 +85,11 @@ The interface keeps required entry fields short and shows an exact review step b
 - Provider: name and optional region.
 - Purchase: provider, total, received weight, optional date/payment method, and either an existing green-coffee lot or a new lot entered inline. Several purchases can select the same lot.
 - Green-coffee lot: name, with optional origin and variety. Weight and amount belong to purchases rather than the reusable lot identity.
-- Roast batch: lot, timestamp, green input, roasted output, and optional duration.
+- Roast batch: only the lot is required initially; date, timestamp, weights, duration, charge temperature, setup notes, curve data, sensory rating, tasting notes, and operator notes can be added progressively.
 
-Purchases have no status and become active on the initial Save. Their table shows an Edit action for later corrections. Roast batches retain draft, confirmed, and void states internally; the frontend's complete roast flow creates a confirmed roast.
+Records have no draft or confirmed status and become active on the initial Save. Roast completeness is derived from the business date and both weights. Voided roasts retain their history but no longer consume inventory.
 
-The roast form displays the selected lot's purchased, already-used, and available green weight. Available green coffee is the sum of all purchases for a lot minus the green input of every non-void roast for that lot. Both the frontend and API reject a roast input above the available weight, and the database repeats the check under a per-lot lock to prevent concurrent saves from overbooking inventory.
+The roast form displays the selected lot's purchased, already-used, and available green weight. Available green coffee is the sum of all purchases for a lot minus the green input of every non-voided roast for that lot. Both the frontend and API reject a roast input above the available weight, and the database repeats the check under a per-lot lock to prevent concurrent saves from overbooking inventory.
 
 The UI derives but does not persist:
 

@@ -54,7 +54,7 @@ _PROPOSAL_REQUIRED = {
     "create_green_coffee_lot": ["name"],
     "create_roast_batch": ["green_coffee_lot_id"],
     "update_record": ["resource", "id", "fields"],
-    "set_record_status": ["resource", "id", "status"],
+    "void_roast_batch": ["resource", "id"],
     "delete_record": ["resource", "id"],
     "upload_purchase_document": ["purchase_id", "file_path"],
     "remove_entry": ["term"],
@@ -589,7 +589,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
                 "voice-vocabulary upsert_entry executes immediately and must not ask for confirmation. "
                 "When one request needs multiple related non-destructive writes, the confirmation prompt must "
                 "list every planned write and all known fields. Tell the operator that one confirmation covers "
-                "that complete listed workflow. Deletes and roast status changes are excluded and must "
+                "that complete listed workflow. Deletes and voiding a roast are excluded and must "
                 "always be confirmed separately."
             ),
         })
@@ -620,7 +620,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
                 "that was already listed in the preceding confirmation prompt. Continue now until every listed "
                 "create, update, or evidence-upload action is complete, without asking again. Use only facts and "
                 "fields already present in the conversation. Do not extend this approval to a delete, a roast "
-                "status transition, an unlisted action, or a new user request. If no listed action "
+                "roast void, an unlisted action, or a new user request. If no listed action "
                 "remains, stop and return the concise final result."
             ),
         })
@@ -641,7 +641,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "In every user-facing reply, identify Cafe OS records by their human-readable name. "
             "Do not print record UUIDs, confirmation IDs, request IDs, raw tool calls, or raw tool errors "
             "unless the user explicitly asks for IDs or diagnostics. If a record has no name, use a concise "
-            "human-readable description such as its record type plus date or status. Internal IDs may be used "
+            "human-readable description such as its record type plus date. Internal IDs may be used "
             "only inside tool arguments."
         ),
     })
@@ -695,7 +695,7 @@ def _provider_write_requires_catalog(short: str, args: Any) -> bool:
         return False
     if short in {"create_provider", "create_purchase"}:
         return True
-    return short in {"update_record", "set_record_status", "delete_record"} \
+    return short in {"update_record", "void_roast_batch", "delete_record"} \
         and args.get("resource") == "provider"
 
 
@@ -741,7 +741,7 @@ def _pre_tool_call(*, tool_name: str = "", args: Any = None, session_id: str = "
     if state.get("full_catalog") and not state.get("pending_bypass") and isinstance(args, dict):
         references: list[tuple[str, str]] = []
         resource = str(args.get("resource") or "")
-        if short in {"update_record", "set_record_status", "delete_record"} and resource and isinstance(args.get("id"), str):
+        if short in {"update_record", "void_roast_batch", "delete_record"} and resource and isinstance(args.get("id"), str):
             references.append((resource, args["id"]))
         elif short == "upload_purchase_document" and isinstance(args.get("purchase_id"), str):
             references.append(("purchase", args["purchase_id"]))
@@ -939,13 +939,13 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                         "fields to create the non-writing pending proposal."
                     )
             elif not state.get("full_catalog") and match_count == 1 and any(name in state["selected"] for name in {
-                "set_record_status", "upload_purchase_document"
+                "void_roast_batch", "upload_purchase_document"
             }):
                 state["selected"].discard("query_records")
-                if "set_record_status" in state["selected"]:
+                if "void_roast_batch" in state["selected"]:
                     state["phase_instruction"] = (
-                        "The exact draft record is resolved. Call the active Cafe OS status tool now with its "
-                        "resource, UUID, and requested target status to create the non-writing pending proposal. "
+                        "The exact roast record is resolved. Call void_roast_batch now with its resource and UUID "
+                        "to create the non-writing pending proposal. "
                         "Do not ask for approval until that proposal exists."
                     )
                 else:

@@ -49,15 +49,14 @@ providers/{provider_id}/purchases/{purchase_id}/{filename}
 
 - `green_coffee_lot_id`
 - optional `name`
-- `roasted_at`
-- `status`: `draft`, `confirmed`, or `void`
-- `green_input_kg`
-- `roasted_output_kg`
-- `duration_seconds`
+- optional business `roast_date` and exact `roasted_at` timestamp
+- optional `green_input_kg` and `roasted_output_kg`
+- optional `duration_seconds`
 - optional JSON object `machine_settings`
-- `notes`
+- optional charge temperature, setup notes, curve checkpoints, sensory rating, tasting notes, and operator notes
+- nullable `voided_at` and `void_reason` for reversal without deletion
 
-Purchases and green-coffee lots have no status; a stored record is active. A confirmed roast must have its timestamp and both weights, and roasted output cannot exceed green input.
+Every stored record is active and there is no draft or confirmed status. A roast requires only its green-coffee lot at creation and can be filled in progressively. When both weights are present, roasted output cannot exceed green input. Completeness is derived from `roast_date`, `green_input_kg`, and `roasted_output_kg` rather than persisted as lifecycle state.
 
 ## Calculations
 
@@ -76,10 +75,10 @@ weighted_green_unit_cost_per_kg =
 
 available_green_kg =
   sum(purchase received_weight_kg) -
-  sum(non-void roast green_input_kg)
+  sum(non-voided roast green_input_kg)
 ```
 
-Every purchase enters weighted cost and available supply immediately. Non-void roast batches with a green input reserve that weight, including partial drafts captured through the API, so later roasts cannot overbook the lot. Database triggers serialize inventory-changing writes per lot and reject both excess roast input and purchase changes that would reduce supply below already-reserved roast input.
+Every purchase enters weighted cost and available supply immediately. Non-voided roast batches reserve inventory as soon as `green_input_kg` is supplied, even when other roast fields are missing. Database triggers serialize inventory-changing writes per lot and reject both excess roast input and purchase changes that would reduce supply below already-reserved roast input.
 
 The base roasted cost excludes packaging, labor, energy, freight allocation, and other overhead.
 

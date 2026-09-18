@@ -6,7 +6,7 @@ export const CAFE_TOOL_NAMES = [
   "create_green_coffee_lot",
   "create_roast_batch",
   "update_record",
-  "set_record_status",
+  "void_roast_batch",
   "delete_record",
   "upload_purchase_document",
 ] as const;
@@ -54,20 +54,20 @@ export const CAFE_TOOL_CATALOG: readonly CafeToolCatalogEntry[] = [
   {
     name: "create_roast_batch",
     kind: "write",
-    description: "Create a roast batch draft linked to a green coffee lot after human confirmation.",
+    description: "Create a progressive roast batch linked to a green coffee lot after human confirmation.",
     searchTerms: ["create", "add", "roast", "batch", "tueste", "tostado", "crear", "agregar"],
   },
   {
     name: "update_record",
     kind: "write",
-    description: "Patch confirmed fields on an existing Cafe OS record.",
+    description: "Add or correct fields on an existing Cafe OS record.",
     searchTerms: ["update", "patch", "edit", "correct", "change", "actualizar", "editar", "corregir", "cambiar"],
   },
   {
-    name: "set_record_status",
+    name: "void_roast_batch",
     kind: "write",
-    description: "Confirm or void an existing roast batch draft.",
-    searchTerms: ["status", "roast", "confirm", "void", "accept", "estado", "tueste", "confirmar", "anular", "aceptar"],
+    description: "Void a roast batch without deleting its operational history.",
+    searchTerms: ["roast", "void", "exclude", "tueste", "anular", "invalidar"],
   },
   {
     name: "delete_record",

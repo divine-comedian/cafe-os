@@ -49,6 +49,9 @@ supabase/
 # Local worktrees
 .worktrees/
 
+# Local reference repositories; never publish client source.
+sample/
+
 # Generated frontend build
 services/cafe-api/public/
 

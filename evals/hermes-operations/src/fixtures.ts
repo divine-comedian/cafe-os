@@ -26,8 +26,8 @@ export function coreFixture(): CafeState {
       { id: IDS.greenLot, name: "Chiapas lavado", origin: "chiapas, méxico", variety: "bourbon", notes: null },
     ],
     roast_batches: [
-      { id: IDS.confirmedRoast, green_coffee_lot_id: IDS.greenLot, name: "Tueste prueba", roasted_at: "2026-09-10T16:00:00-06:00", green_input_kg: "10.000", roasted_output_kg: "8.500", duration_seconds: 720, machine_settings: null, notes: null, status: "confirmed" },
-      { id: IDS.draftRoast, green_coffee_lot_id: IDS.greenLot, name: "Tueste tarde", roasted_at: "2026-09-15T17:00:00-06:00", green_input_kg: "8.000", roasted_output_kg: "6.900", duration_seconds: 690, machine_settings: null, notes: "pendiente de confirmar", status: "draft" },
+      { id: IDS.confirmedRoast, green_coffee_lot_id: IDS.greenLot, name: "Tueste prueba", roast_date: "2026-09-10", roasted_at: "2026-09-10T16:00:00-06:00", green_input_kg: "10.000", roasted_output_kg: "8.500", duration_seconds: 720, machine_settings: null, notes: null, voided_at: null },
+      { id: IDS.draftRoast, green_coffee_lot_id: IDS.greenLot, name: "Tueste tarde", roast_date: "2026-09-15", roasted_at: "2026-09-15T17:00:00-06:00", green_input_kg: "8.000", roasted_output_kg: "6.900", duration_seconds: 690, machine_settings: null, notes: "pendiente de completar", voided_at: null },
     ],
   } satisfies CafeState);
 }

@@ -49,7 +49,7 @@ describe("Cafe OS MCP tools", () => {
       "create_green_coffee_lot",
       "create_roast_batch",
       "update_record",
-      "set_record_status",
+      "void_roast_batch",
       "delete_record",
       "upload_purchase_document",
     ]);
@@ -114,7 +114,7 @@ describe("Cafe OS MCP tools", () => {
     }]);
   });
 
-  it("does not expose status on purchases or green-coffee lots", async () => {
+  it("does not expose draft or confirmed status on any record", async () => {
     const purchase = await client.callTool({
       name: "create_purchase",
       arguments: {
@@ -129,11 +129,10 @@ describe("Cafe OS MCP tools", () => {
       arguments: { name: "Lote activo", status: "confirmed" },
     });
     const purchaseStatus = await client.callTool({
-      name: "set_record_status",
+      name: "void_roast_batch",
       arguments: {
         resource: "purchase",
         id: "11111111-1111-4111-8111-111111111111",
-        status: "confirmed",
       },
     });
     const purchaseFilter = await client.callTool({
@@ -146,6 +145,29 @@ describe("Cafe OS MCP tools", () => {
     expect(purchaseStatus.isError).toBe(true);
     expect(purchaseFilter.isError).toBe(true);
     expect(api.calls).toHaveLength(0);
+  });
+
+  it("prepares and voids a roast without deleting it", async () => {
+    const id = "5b8eddb3-dbc2-4c48-b33d-f8acc512681a";
+    const prepared = await client.callTool({
+      name: "void_roast_batch",
+      arguments: { resource: "roast_batch", id, reason: "Duplicate entry" },
+    });
+    expect(prepared.isError).not.toBe(true);
+    expect(api.calls).toHaveLength(0);
+    const confirmationId = ((prepared.structuredContent as Record<string, unknown> | undefined)
+      ?.pending_confirmation as Record<string, unknown>).id;
+
+    const response = await client.callTool({
+      name: "void_roast_batch",
+      arguments: { confirmation_id: confirmationId },
+    });
+    expect(response.isError).not.toBe(true);
+    expect(api.calls).toEqual([{
+      method: "POST",
+      route: `/roast-batches/${id}/void`,
+      body: { reason: "Duplicate entry" },
+    }]);
   });
 
   it("combines exact lookup and filtered lists in one read tool", async () => {

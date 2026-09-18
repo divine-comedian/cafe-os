@@ -415,7 +415,7 @@ describe("Cafe API", () => {
       green_coffee_lot_id: lotId,
       green_input_kg: "4.000",
       roasted_output_kg: "3.400",
-      status: "confirmed",
+      voided_at: null,
     });
     const app = await buildApp({ config, store, logger: false });
     apps.push(app);
@@ -423,10 +423,11 @@ describe("Cafe API", () => {
 
     const exactRemainder = await app.inject({
       method: "POST",
-      url: "/v1/roast-batches/confirmed",
+      url: "/v1/roast-batches",
       headers,
       payload: {
         green_coffee_lot_id: lotId,
+        roast_date: "2026-09-16",
         roasted_at: "2026-09-16T15:30:00.000Z",
         green_input_kg: "11.000",
         roasted_output_kg: "9.400",
@@ -435,12 +436,12 @@ describe("Cafe API", () => {
     expect(exactRemainder.statusCode).toBe(201);
     expect(exactRemainder.json().data).toMatchObject({
       green_input_kg: "11.000",
-      status: "confirmed",
+      completion: { is_complete: true, missing_fields: [] },
     });
 
     const excess = await app.inject({
       method: "POST",
-      url: "/v1/roast-batches/confirmed",
+      url: "/v1/roast-batches",
       headers,
       payload: {
         green_coffee_lot_id: lotId,
@@ -473,18 +474,16 @@ describe("Cafe API", () => {
       green_coffee_lot_id: lotId,
       green_input_kg: "6.000",
       roasted_output_kg: "5.000",
-      status: "confirmed",
+      voided_at: null,
     });
     const app = await buildApp({ config, store, logger: false });
     apps.push(app);
 
     const response = await app.inject({
-      method: "PUT",
-      url: `/v1/roast-batches/${roastId}/confirm`,
+      method: "PATCH",
+      url: `/v1/roast-batches/${roastId}`,
       headers: { authorization: "Bearer test-api-token" },
       payload: {
-        green_coffee_lot_id: lotId,
-        roasted_at: "2026-09-16T15:30:00.000Z",
         green_input_kg: "8.000",
         roasted_output_kg: "6.800",
       },
@@ -494,8 +493,99 @@ describe("Cafe API", () => {
     expect(response.json().data).toMatchObject({
       green_input_kg: "8.000",
       roasted_output_kg: "6.800",
-      status: "confirmed",
     });
+  });
+
+  it("creates a progressive roast with only a lot and derives missing completeness fields", async () => {
+    const store = new MemoryStore();
+    const lotId = crypto.randomUUID();
+    store.rows.green_coffee_lots.push({ id: lotId, name: "Lote progresivo" });
+    store.rows.purchases.push({
+      id: crypto.randomUUID(),
+      green_coffee_lot_id: lotId,
+      received_weight_kg: "5.000",
+    });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/roast-batches",
+      headers: { authorization: "Bearer test-api-token" },
+      payload: { green_coffee_lot_id: lotId },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().data).toMatchObject({
+      green_coffee_lot_id: lotId,
+      checkpoints: [],
+      sensory_rating: null,
+      completion: {
+        is_complete: false,
+        missing_fields: ["roast_date", "green_input_kg", "roasted_output_kg"],
+      },
+    });
+    expect(created.json().data).not.toHaveProperty("status");
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/v1/roast-batches/${created.json().data.id}`,
+      headers: { authorization: "Bearer test-api-token" },
+      payload: {
+        roast_date: "2026-09-18",
+        green_input_kg: "1.000",
+        roasted_output_kg: "0.850",
+        charge_temperature_c: "198.5",
+        checkpoints: [{
+          elapsed_seconds: 90,
+          temperature_c: "102.5",
+          airflow_setting: 2,
+          gas_setting: 3.5,
+          note: "  punto amarillo  ",
+        }],
+        sensory_rating: 4,
+        tasting_notes: "  chocolate y cítricos  ",
+      },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().data).toMatchObject({
+      roast_date: "2026-09-18",
+      charge_temperature_c: "198.5",
+      checkpoints: [{ elapsed_seconds: 90, temperature_c: "102.5", note: "punto amarillo" }],
+      sensory_rating: 4,
+      tasting_notes: "chocolate y cítricos",
+      completion: { is_complete: true, missing_fields: [] },
+    });
+  });
+
+  it("voids a roast with a timestamp and excludes it from future inventory use", async () => {
+    const store = new MemoryStore();
+    const lotId = crypto.randomUUID();
+    const roastId = crypto.randomUUID();
+    store.rows.green_coffee_lots.push({ id: lotId, name: "Lot" });
+    store.rows.purchases.push({ id: crypto.randomUUID(), green_coffee_lot_id: lotId, received_weight_kg: "5.000" });
+    store.rows.roast_batches.push({ id: roastId, green_coffee_lot_id: lotId, green_input_kg: "5.000", voided_at: null });
+    const app = await buildApp({ config, store, logger: false });
+    apps.push(app);
+    const headers = { authorization: "Bearer test-api-token" };
+
+    const voided = await app.inject({
+      method: "POST",
+      url: `/v1/roast-batches/${roastId}/void`,
+      headers,
+      payload: { reason: "Registro duplicado" },
+    });
+    expect(voided.statusCode).toBe(200);
+    expect(voided.json().data.voided_at).toBeTruthy();
+    expect(voided.json().data.void_reason).toBe("Registro duplicado");
+
+    const replacement = await app.inject({
+      method: "POST",
+      url: "/v1/roast-batches",
+      headers,
+      payload: { green_coffee_lot_id: lotId, green_input_kg: "5.000" },
+    });
+    expect(replacement.statusCode).toBe(201);
   });
 
   it("serves generated OpenAPI JSON", async () => {

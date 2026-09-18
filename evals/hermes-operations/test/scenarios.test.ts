@@ -9,7 +9,7 @@ const cafeTools = [
   "create_green_coffee_lot",
   "create_roast_batch",
   "update_record",
-  "set_record_status",
+  "void_roast_batch",
   "delete_record",
   "upload_purchase_document",
 ];

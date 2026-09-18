@@ -8,7 +8,13 @@ const uuid = z.string().uuid().describe("UUID returned by Cafe OS");
 const nullableText = z.string().nullable();
 const decimal = z.union([z.number(), z.string()]);
 const nullableDecimal = decimal.nullable();
-const status = z.enum(["draft", "confirmed", "void"]);
+const roastCheckpoint = z.object({
+  elapsed_seconds: z.number().int().min(0),
+  temperature_c: nullableDecimal.optional(),
+  airflow_setting: nullableDecimal.optional(),
+  gas_setting: nullableDecimal.optional(),
+  note: nullableText.optional(),
+}).strict();
 
 function exactProposalSchema<T extends z.ZodRawShape>(shape: T, requiredFields: string[]) {
   return z.object({ confirmation_id: uuid.optional(), ...shape }).strict().superRefine((value, context) => {
@@ -94,7 +100,6 @@ function storedReceipt(payload: unknown, operation: string, resource: Resource |
   const record = data && typeof data === "object" && !Array.isArray(data)
     ? data as Record<string, unknown>
     : {};
-  const statusValue = record.status;
   return {
     ok: true,
     operation_receipt: {
@@ -103,7 +108,6 @@ function storedReceipt(payload: unknown, operation: string, resource: Resource |
       id: record.id ?? (record.purchase && typeof record.purchase === "object"
         ? (record.purchase as Record<string, unknown>).id
         : undefined),
-      ...(statusValue !== undefined ? { status: statusValue } : {}),
       authoritative: true,
     },
     data,
@@ -306,7 +310,7 @@ export function registerCafeTools(
     {
       title: "Cafe OS — Query records",
       description:
-        "Read one Cafe OS record by UUID or search/list records. Before a write involving a named provider, list the complete provider catalog with resource=provider, limit=100, offset=0, and no name or id filter; compare all returned names and ask the operator to confirm any plausible non-exact match. For purchases named by an already exact provider, resource=purchase with provider_name plus optional purchased_at resolves it in one call. Purchase and green-coffee-lot records have no status. Other name searches return partial candidates and bounded near-name suggestions. Suggestions are never resolved automatically. Never choose when multiple plausible matches remain. For traceability, resolve a lot name once, then query its ID with include=traceability. Never changes database state.",
+        "Read one Cafe OS record by UUID or search/list records. Before a write involving a named provider, list the complete provider catalog with resource=provider, limit=100, offset=0, and no name or id filter; compare all returned names and ask the operator to confirm any plausible non-exact match. For purchases named by an already exact provider, resource=purchase with provider_name plus optional purchased_at resolves it in one call. Records do not use draft or confirmed statuses. Other name searches return partial candidates and bounded near-name suggestions. Suggestions are never resolved automatically. Never choose when multiple plausible matches remain. For traceability, resolve a lot name once, then query its ID with include=traceability. Never changes database state.",
       inputSchema: z.object({
         resource: z.enum(["provider", "purchase", "green_coffee_lot", "roast_batch"]),
         id: uuid.optional().describe("When present, return exactly this record"),
@@ -314,12 +318,11 @@ export function registerCafeTools(
         provider_name: z.string().min(1).max(160).optional().describe("Purchase lookup: resolves one exact provider name inside this call"),
         purchased_at: z.string().date().optional().describe("Purchase-list calendar-date filter"),
         green_coffee_lot_id: uuid.optional().describe("Purchase or roast-batch list filter"),
-        status: status.optional().describe("Roast-batch list filter only"),
         name: z.string().min(1).max(160).optional().describe("Case-insensitive partial display-name filter for providers, green-coffee lots, or roast batches"),
         include: z.literal("traceability").optional().describe("Only for one green-coffee lot; expands provider, purchase, lot, and roast batches"),
         limit: z.number().int().min(1).max(100).default(50),
         offset: z.number().int().min(0).default(0),
-      }),
+      }).strict(),
       annotations: {
         title: "Cafe OS — Query records",
         readOnlyHint: true,
@@ -332,9 +335,6 @@ export function registerCafeTools(
       safely(async () => {
         if (include && resource !== "green_coffee_lot") {
           throw new Error("VALIDATION_ERROR: include=traceability is only valid for green_coffee_lot.");
-        }
-        if (filters.status !== undefined && resource !== "roast_batch") {
-          throw new Error("VALIDATION_ERROR: status is only valid for roast_batch queries.");
         }
         if (id) {
           const payload = await client.request("GET", route(resource, id));
@@ -380,7 +380,7 @@ export function registerCafeTools(
           provider: ["name"],
           purchase: ["provider_id", "green_coffee_lot_id", "purchased_at"],
           green_coffee_lot: ["name"],
-          roast_batch: ["green_coffee_lot_id", "status", "name"],
+          roast_batch: ["green_coffee_lot_id", "name"],
         };
         const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
         for (const [key, value] of Object.entries(filters)) {
@@ -460,17 +460,23 @@ export function registerCafeTools(
   server.registerTool(
     "create_roast_batch",
     {
-      title: "Cafe OS — Create roast-batch draft",
+      title: "Cafe OS — Create progressive roast batch",
       description:
-        "Prepare a roast-draft proposal without writing. Preserve the exact name and distinct weights. After approval, call this same tool with only confirmation_id; its receipt is authoritative.",
+        "Prepare a progressive roast record without writing. Only the green-coffee lot is required; omit unknown measurements so they can be added later. After approval, call this same tool with only confirmation_id; its receipt is authoritative.",
       inputSchema: exactProposalSchema({
         green_coffee_lot_id: uuid.optional(),
         name: nullableText.optional(),
+        roast_date: z.string().date().nullable().optional(),
         roasted_at: z.string().nullable().optional().describe("ISO 8601 date-time when known"),
         green_input_kg: nullableDecimal.optional(),
         roasted_output_kg: nullableDecimal.optional(),
         duration_seconds: z.number().int().min(0).nullable().optional(),
         machine_settings: z.record(z.string(), z.unknown()).nullable().optional(),
+        charge_temperature_c: nullableDecimal.optional(),
+        setup_notes: nullableText.optional(),
+        checkpoints: z.array(roastCheckpoint).optional(),
+        sensory_rating: z.number().int().min(1).max(5).nullable().optional(),
+        tasting_notes: nullableText.optional(),
         notes: nullableText.optional(),
       }, ["green_coffee_lot_id"]),
       annotations: writeAnnotations,
@@ -491,11 +497,17 @@ export function registerCafeTools(
     origin: nullableText.optional(),
     variety: nullableText.optional(),
     received_weight_kg: decimal.optional(),
+    roast_date: z.string().date().nullable().optional(),
     roasted_at: z.string().nullable().optional(),
     green_input_kg: nullableDecimal.optional(),
     roasted_output_kg: nullableDecimal.optional(),
     duration_seconds: z.number().int().min(0).nullable().optional(),
     machine_settings: z.record(z.string(), z.unknown()).nullable().optional(),
+    charge_temperature_c: nullableDecimal.optional(),
+    setup_notes: nullableText.optional(),
+    checkpoints: z.array(roastCheckpoint).optional(),
+    sensory_rating: z.number().int().min(1).max(5).nullable().optional(),
+    tasting_notes: nullableText.optional(),
     notes: nullableText.optional(),
   }).strict();
   const updateInput = exactProposalSchema({
@@ -508,7 +520,7 @@ export function registerCafeTools(
       provider: new Set(["name", "region", "notes"]),
       purchase: new Set(["provider_id", "green_coffee_lot_id", "purchased_at", "received_weight_kg", "total_amount", "currency", "payment_method", "notes"]),
       green_coffee_lot: new Set(["name", "origin", "variety", "notes"]),
-      roast_batch: new Set(["green_coffee_lot_id", "name", "roasted_at", "green_input_kg", "roasted_output_kg", "duration_seconds", "machine_settings", "notes"]),
+      roast_batch: new Set(["green_coffee_lot_id", "name", "roast_date", "roasted_at", "green_input_kg", "roasted_output_kg", "duration_seconds", "machine_settings", "charge_temperature_c", "setup_notes", "checkpoints", "sensory_rating", "tasting_notes", "notes"]),
     };
     if (!Object.keys(value.fields).length) {
       context.addIssue({ code: "custom", path: ["fields"], message: "At least one field is required" });
@@ -525,7 +537,7 @@ export function registerCafeTools(
     {
       title: "Cafe OS — Update a record",
       description:
-        "Prepare an exact record patch without writing; null explicitly clears a nullable field. After approval, call this same tool with only confirmation_id. Only roast batches have status; their status changes use set_record_status.",
+        "Prepare an exact record patch without writing; null explicitly clears a nullable field. Roast fields may be added progressively. After approval, call this same tool with only confirmation_id.",
       inputSchema: updateInput,
       annotations: {
         ...writeAnnotations,
@@ -563,28 +575,28 @@ export function registerCafeTools(
   );
 
   server.registerTool(
-    "set_record_status",
+    "void_roast_batch",
     {
-      title: "Cafe OS — Confirm or void a roast batch",
+      title: "Cafe OS — Void a roast batch",
       description:
-        "Prepare an exact roast-batch status change without writing. Purchases and green-coffee lots have no status. After separate explicit approval, call this same tool with only confirmation_id to execute once.",
+        "Prepare a reversible inventory exclusion for one roast batch without writing. After separate explicit approval, call this same tool with only confirmation_id to set its void timestamp once.",
       inputSchema: exactProposalSchema({
         resource: z.literal("roast_batch").optional(),
         id: uuid.optional(),
-        status: z.enum(["confirmed", "void"]).optional(),
-      }, ["resource", "id", "status"]),
+        reason: z.string().min(1).optional(),
+      }, ["resource", "id"]),
       annotations: {
         ...writeAnnotations,
         destructiveHint: true,
         idempotentHint: true,
       },
     },
-    async (input) => safely(() => pendingMutation(pending, "set_record_status", input, async (stored) => {
+    async (input) => safely(() => pendingMutation(pending, "void_roast_batch", input, async (stored) => {
       const resource = stored.resource as "roast_batch";
-      const nextStatus = String(stored.status);
       return storedReceipt(
-        await client.request("POST", `${route(resource, String(stored.id))}/${nextStatus}`),
-        nextStatus,
+        await client.request("POST", `${route(resource, String(stored.id))}/void`,
+          stored.reason === undefined ? {} : { reason: stored.reason }),
+        "void",
         resource,
       );
     })),

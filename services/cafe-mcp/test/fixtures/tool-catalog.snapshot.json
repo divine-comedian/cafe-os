@@ -9,9 +9,9 @@
     "create_green_coffee_lot",
     "create_roast_batch",
     "update_record",
-    "set_record_status",
+    "void_roast_batch",
     "delete_record",
     "upload_purchase_document"
   ],
-  "normalized_schema_sha256": "e9509683c86fd45801803de82c76f2ecdedda2cbae83ec2cf780f0e883965000"
+  "normalized_schema_sha256": "001e8084ce73544db5bf01b317c29c1bf37326c6b3b663e2b864eea788573e8f"
 }

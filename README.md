@@ -17,7 +17,7 @@ The Hermes runtime is deliberately installed outside this repository at `~/.herm
 - Telegram accepts messages only from explicitly allowlisted operator IDs. Shell, file-write, cron, messaging, and shared-memory access remain disabled.
 - Telegram emits only the final conversational response; tool progress, reasoning, interim narration, streaming drafts, and mid-run steering acknowledgements are hidden.
 - Telegram sessions have no idle timeout, and persisted Cafe proposals remain resumable for seven days across gateway restarts.
-- One approval can complete a consolidated related create/update/upload workflow; deletes and roast status changes still require separate approval. Purchases and green-coffee lots have no status.
+- One approval can complete a consolidated related create/update/upload workflow; deletes and voiding a roast still require separate approval. Records have no draft or confirmed status, and roast fields can be added progressively.
 - Remote admin slash commands are disabled; allowlisted operators receive only the documented safe command set.
 - The gateway runs as an enabled per-user systemd service and starts automatically at boot.
 - A self-hosted Supabase `v0.8.1` stack is running on loopback-only ports with the four-table Cafe OS schema and invite-only email Auth.

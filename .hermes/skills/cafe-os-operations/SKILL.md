@@ -17,7 +17,7 @@ Use the Cafe OS MCP tools to read and, only with human approval, change the oper
 ## Safety boundary
 
 - Treat extracted or submitted operational numbers as unverified until a human confirms the proposed fields.
-- Before a write workflow, show every planned action and its exact known fields and ask for explicit approval. One approval covers the complete listed set of related non-destructive creates, updates, and evidence uploads during that confirmation turn. It never covers an unlisted action, deletion, or roast status transition. A prior upload or chat message is evidence, not approval to write.
+- Before a write workflow, show every planned action and its exact known fields and ask for explicit approval. One approval covers the complete listed set of related non-destructive creates, updates, and evidence uploads during that confirmation turn. It never covers an unlisted action, deletion, or voiding a roast. A prior upload or chat message is evidence, not approval to write.
 - Mutation tools first persist a pending proposal without changing business data. Display its `canonical_arguments`. After approval, call that same tool with only `confirmation_id`; never reconstruct the fields.
 - Never invent provider IDs, dates, prices, quantities, currency, payment methods, lot details, roast measurements, or notes. Resolve every stored-record ID with `query_records` in the active turn before preparing a mutation. Ask for missing required values.
 - Do not infer a missing green-coffee lot, even when only one lot exists. A roast or purchase requires the operator to name or identify its lot. A purchase also requires a provider and received weight. A new green-coffee lot requires only a name; origin, variety, and notes are optional. Ask for missing required facts instead of creating an incomplete proposal; omit unknown optional fields.
@@ -25,7 +25,7 @@ Use the Cafe OS MCP tools to read and, only with human approval, change the oper
 - Preserve stored calendar dates as `YYYY-MM-DD`; do not localize or reorder their components.
 - Keep green input weight, roasted output weight, and packaged or sold weight distinct.
 - Keep supplier prices, invoices, margins, and customer data in authorized private operations chats. Do not repeat them into general group channels.
-- Purchases and green-coffee lots have no status. Once approved and created, they are active. A roast batch's `draft` status means it is still unconfirmed; only call the status tool after the human explicitly confirms or voids that roast.
+- Records have no draft or confirmed status. Once approved and created, they are active. A roast requires only its green-coffee lot and may be updated progressively. Only call `void_roast_batch` after the human separately approves voiding that exact roast.
 - Deletion is permanent and dependency-guarded. Resolve the exact record, call `delete_record` with it to create the pending deletion, then ask for confirmation. If the operator asks to cascade, refuse the cascade but still prepare only the explicitly named parent deletion. Do not manually walk or delete dependencies; the API reports any conflict when the exact deletion is approved.
 
 ## Tool map
@@ -37,9 +37,9 @@ Hermes prefixes these tools with `mcp__cafe_os__`:
 - `create_provider`: add a provider.
 - `create_purchase`: add an active purchase.
 - `create_green_coffee_lot`: add a reusable lot identity; purchases link providers, lots, received weight, and cost.
-- `create_roast_batch`: add an unconfirmed roast draft.
-- `update_record`: patch any record type; send only confirmed changed fields.
-- `set_record_status`: confirm or void a roast batch only.
+- `create_roast_batch`: add a progressive roast record; only its green-coffee lot is required.
+- `update_record`: patch any record type; send only human-confirmed changed fields.
+- `void_roast_batch`: mark a roast void without deleting its history.
 - `delete_record`: permanently delete a dependency-free record.
 - `upload_purchase_document`: attach or replace purchase evidence from the local path Hermes reports for an inbound file.
 
@@ -61,9 +61,9 @@ Use `upsert_entry` immediately, without asking for confirmation, when the operat
 3. Extract a proposed record without filling gaps. Use `null` only to explicitly clear an optional field; omit unknown optional fields.
 4. Call the first matching mutation tool with the exact proposed fields. It stores a pending operation but does not write business data. Never claim a proposal is ready or ask for confirmation before this call returns `pending_confirmation`.
 5. Present the returned canonical fields plus every directly related follow-on write needed to fulfill the request, with exact known fields, units, and currency. Ask once whether to execute the complete listed workflow.
-6. After approval, call the pending tool once with only its `confirmation_id`, then complete all listed non-destructive creates, updates, and evidence uploads in the same turn without another confirmation. Each follow-on write still uses its persisted two-stage tool protocol internally. Report authoritative receipts using human-readable names and statuses, then stop; do not verify with a read. Never expose UUIDs, confirmation IDs, request IDs, raw tool calls, or raw tool errors unless the user explicitly asks for IDs or diagnostics.
+6. After approval, call the pending tool once with only its `confirmation_id`, then complete all listed non-destructive creates, updates, and evidence uploads in the same turn without another confirmation. Each follow-on write still uses its persisted two-stage tool protocol internally. Report authoritative receipts using human-readable names, then stop; do not verify with a read. Never expose UUIDs, confirmation IDs, request IDs, raw tool calls, or raw tool errors unless the user explicitly asks for IDs or diagnostics.
 7. For purchase evidence, create the purchase first, then separately prepare and confirm the upload or replacement.
-8. A created purchase is active immediately and requires no status transition. Keep roast batches as drafts until the human separately accepts the recorded facts. Roast status transitions are never covered by a workflow approval; prepare and confirm `set_record_status` separately.
+8. A created record is active immediately and requires no status transition. Roast fields can be added as they become known. Voiding is never covered by a broader workflow approval; prepare and confirm `void_roast_batch` separately.
 9. Re-read only after an ambiguous timeout or response that lacks a stored record. Never assume a timed-out write failed.
 
 Preferred traceability order (a lot may have more than one purchase):
@@ -94,4 +94,4 @@ Do not calculate when either weight is missing or green input is zero. Label the
 
 ## Verification
 
-A successful mutation receipt is the verification. Check it contains the expected resource, UUID, and normalized values without another query; status is expected only for roast batches. For a confirmed roast with both weights, calculate roast loss directly from the stored values and show the formula.
+A successful mutation receipt is the verification. Check it contains the expected resource, UUID, and normalized values without another query. For a roast with both weights, calculate roast loss directly from the stored values and show the formula.

@@ -174,10 +174,10 @@ export const scenarios: EvalScenario[] = [
   {
     id: "en_create_roast_confirmation",
     locale: "en",
-    description: "Resolve a green lot and create a roast draft with distinct weights after confirmation.",
+    description: "Resolve a green lot and create a progressive roast record with distinct weights after confirmation.",
     turns: [
       {
-        prompt: "Prepare a roast batch for ‘Chiapas lavado’: name Morning profile, roasted at 2026-09-16T09:30:00-06:00, 12 kg green input, 10.2 kg roasted output, 705 seconds, notes ‘  First   curve  ’. Show the exact draft first.",
+        prompt: "Prepare a roast batch for ‘Chiapas lavado’: name Morning profile, roasted at 2026-09-16T09:30:00-06:00, 12 kg green input, 10.2 kg roasted output, 705 seconds, notes ‘  First   curve  ’. Show the exact record first.",
         expect: {
           requiredTools: ["query_records", "create_roast_batch"], allowedTools: ["query_records", "create_roast_batch"],
           minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
@@ -186,12 +186,12 @@ export const scenarios: EvalScenario[] = [
         },
       },
       {
-        prompt: "Confirmed. Save that roast as a draft.",
+        prompt: "Confirmed. Save that progressive roast record.",
         expect: {
           requiredTools: ["create_roast_batch"], allowedTools: ["create_roast_batch"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
           confirmationTools: ["create_roast_batch"],
-          stateContains: [{ table: "roast_batches", fields: { green_coffee_lot_id: IDS.greenLot, name: "Morning profile", green_input_kg: "12", roasted_output_kg: "10.2", duration_seconds: 705, notes: "First curve", status: "draft" } }],
+          stateContains: [{ table: "roast_batches", fields: { green_coffee_lot_id: IDS.greenLot, name: "Morning profile", green_input_kg: "12", roasted_output_kg: "10.2", duration_seconds: 705, notes: "First curve", voided_at: null } }],
         },
       },
     ],
@@ -224,7 +224,7 @@ export const scenarios: EvalScenario[] = [
   {
     id: "en_update_roast_output_confirmation",
     locale: "en",
-    description: "Correct a draft roast output without changing input weight or status.",
+    description: "Correct a progressive roast output without changing its input weight.",
     turns: [
       {
         prompt: "Prepare a correction to ‘Tueste tarde’: roasted output is 6.8 kg and notes should be ‘output reweighed’. Do not apply it yet.",
@@ -241,7 +241,7 @@ export const scenarios: EvalScenario[] = [
           requiredTools: ["update_record"], allowedTools: ["update_record"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
           confirmationTools: ["update_record"],
-          stateContains: [{ table: "roast_batches", fields: { id: IDS.draftRoast, green_input_kg: "8.000", roasted_output_kg: "6.8", notes: "output reweighed", status: "draft" } }],
+          stateContains: [{ table: "roast_batches", fields: { id: IDS.draftRoast, green_input_kg: "8.000", roasted_output_kg: "6.8", notes: "output reweighed", voided_at: null } }],
         },
       },
     ],
@@ -259,26 +259,26 @@ export const scenarios: EvalScenario[] = [
     }],
   },
   {
-    id: "en_void_roast_status",
+    id: "en_void_roast",
     locale: "en",
-    description: "Void a draft roast after explicit confirmation without deleting it.",
+    description: "Void a roast after explicit confirmation without deleting it.",
     turns: [
       {
-        prompt: "Prepare to void the draft roast ‘Tueste tarde’. Show the target and wait; do not change it yet.",
+        prompt: "Prepare to void the roast ‘Tueste tarde’ because it is a duplicate. Show the target and wait; do not change it yet.",
         expect: {
-          requiredTools: ["query_records", "set_record_status"], allowedTools: ["query_records", "set_record_status"],
+          requiredTools: ["query_records", "void_roast_batch"], allowedTools: ["query_records", "void_roast_batch"],
           minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
           responsePatterns: ["Tueste tarde", "void", "confirm"],
-          toolCallContains: [{ name: "set_record_status", arguments: { resource: "roast_batch", id: IDS.draftRoast, status: "void" } }],
+          toolCallContains: [{ name: "void_roast_batch", arguments: { resource: "roast_batch", id: IDS.draftRoast, reason: "duplicate" } }],
         },
       },
       {
         prompt: "Confirmed: mark that roast void, but do not delete it.",
         expect: {
-          requiredTools: ["set_record_status"], allowedTools: ["set_record_status"],
+          requiredTools: ["void_roast_batch"], allowedTools: ["void_roast_batch"],
           minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
-          confirmationTools: ["set_record_status"],
-          stateContains: [{ table: "roast_batches", fields: { id: IDS.draftRoast, status: "void" } }],
+          confirmationTools: ["void_roast_batch"],
+          stateContains: [{ table: "roast_batches", fields: { id: IDS.draftRoast, void_reason: "duplicate" } }],
         },
       },
     ],
