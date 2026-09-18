@@ -95,6 +95,8 @@ describe("Cafe tool intent router", () => {
     expect(payload.reasoning).toEqual({ enabled: false, exclude: true });
     expect(payload.messages[0].content).toContain("Green-coffee lots require only a name");
     expect(payload.messages[0].content).toContain("lookup_resource");
+    expect(payload.messages[0].content).toContain("live browser timer is not a Cafe tool capability");
+    expect(payload.messages[0].content).toContain("checkpoints update replaces the complete array");
   });
 
   it("fails safely on malformed or low-confidence output", async () => {

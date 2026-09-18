@@ -82,6 +82,15 @@ function roastFields(body: RoastBody, patch: boolean): Row {
           "charge_temperature_c",
         ),
   );
+  put(
+    "balance_point_temperature_c",
+    body.balance_point_temperature_c === undefined || body.balance_point_temperature_c === null
+      ? null
+      : requireNonnegativeDecimal(
+          normalizeDecimal(body.balance_point_temperature_c, "balance_point_temperature_c"),
+          "balance_point_temperature_c",
+        ),
+  );
   put("setup_notes", normalizeNotes(body.setup_notes));
   put("checkpoints", body.checkpoints === undefined ? [] : normalizeCheckpoints(body.checkpoints));
   put("sensory_rating", body.sensory_rating ?? null);

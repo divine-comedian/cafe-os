@@ -143,6 +143,7 @@ export const RoastBatchCreateSchema = Type.Object(
       Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
     ),
     charge_temperature_c: Type.Optional(NullableDecimal),
+    balance_point_temperature_c: Type.Optional(NullableDecimal),
     setup_notes: Type.Optional(NullableString),
     checkpoints: Type.Optional(Type.Array(RoastCheckpointSchema)),
     sensory_rating: Type.Optional(Type.Union([
@@ -170,6 +171,7 @@ export const RoastBatchPatchSchema = Type.Object(
       Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
     ),
     charge_temperature_c: Type.Optional(NullableDecimal),
+    balance_point_temperature_c: Type.Optional(NullableDecimal),
     setup_notes: Type.Optional(NullableString),
     checkpoints: Type.Optional(Type.Array(RoastCheckpointSchema)),
     sensory_rating: Type.Optional(Type.Union([

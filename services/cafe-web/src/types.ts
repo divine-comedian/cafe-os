@@ -40,6 +40,7 @@ export interface RoastBatch {
   duration_seconds: number | null;
   machine_settings: Record<string, unknown> | null;
   charge_temperature_c: string | number | null;
+  balance_point_temperature_c: string | number | null;
   setup_notes: string | null;
   checkpoints: Array<{
     elapsed_seconds: number;

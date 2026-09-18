@@ -13,5 +13,8 @@ describe("Cafe tool catalog", () => {
     expect(discoverCafeTools("correct roast output").map((entry) => entry.name)).toContain(
       "update_record",
     );
+    expect(discoverCafeTools("agregar punto de control con tiro y gas").map((entry) => entry.name)).toContain(
+      "update_record",
+    );
   });
 });

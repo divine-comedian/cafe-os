@@ -247,6 +247,145 @@ export const scenarios: EvalScenario[] = [
     ],
   },
   {
+    id: "es_update_roast_checkpoint_confirmation",
+    locale: "es-MX",
+    description: "Convert a displayed roast time to seconds and preserve existing control points in the replacement array.",
+    turns: [
+      {
+        prompt: "Prepara agregar a ‘Tueste prueba’ un punto de control en 08:30: temperatura 190 °C, tiro 3, gas 2 y nota ‘primer crack’. Conserva los puntos anteriores y todavía no lo apliques.",
+        expect: {
+          requiredTools: ["query_records", "update_record"], allowedTools: ["query_records", "update_record"],
+          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
+          responsePatterns: ["08:30", "510", "confirm"],
+          toolCallContains: [{ name: "update_record", arguments: { resource: "roast_batch", id: IDS.confirmedRoast, fields: { checkpoints: [
+            { elapsed_seconds: 90, temperature_c: "102.5", note: "amarillo" },
+            { elapsed_seconds: 510, temperature_c: 190, airflow_setting: 3, gas_setting: 2, note: "primer crack" },
+          ] } } }],
+        },
+      },
+      {
+        prompt: "Confirmo agregar exactamente ese punto, conservando el anterior.",
+        expect: {
+          requiredTools: ["update_record"], allowedTools: ["update_record"],
+          minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
+          confirmationTools: ["update_record"],
+          stateContains: [{ table: "roast_batches", fields: { id: IDS.confirmedRoast, checkpoints: [
+            { elapsed_seconds: 90, temperature_c: "102.5", note: "amarillo" },
+            { elapsed_seconds: 510, temperature_c: 190, airflow_setting: 3, gas_setting: 2, note: "primer crack" },
+          ] } }],
+        },
+      },
+    ],
+  },
+  {
+    id: "en_live_timer_is_browser_local",
+    locale: "en",
+    description: "Do not pretend the agent can operate the dashboard's browser-local roast timer.",
+    turns: [{
+      prompt: "Start the live timer for the roast ‘Tueste prueba’.",
+      expect: {
+        allowedTools: [], maxToolCalls: 0, maxApiCalls: 2, mutationCount: 0,
+        responsePatterns: ["browser|dashboard", "cannot|can't|local"],
+      },
+    }],
+  },
+  {
+    id: "es_natural_message_creates_full_roast",
+    locale: "es-MX",
+    description: "Translate a natural post-roast operator message into a complete roast-entry proposal with unit and time conversions.",
+    turns: [
+      {
+        prompt: "Quiero dejar registrado el tostado Perfil miel del lote Chiapas lavado, hecho el 2026-09-18. Metimos 12,000 g y al descargar quedaron 10,200 g. En total fueron 11:45. El tambor estaba a 180 °C cuando entró el grano; la caída se frenó y la temperatura empezó a recuperarse en 96 °C. Antes anoté ‘gas inicial al 70%’. A los 08:30 marcaba 190 °C; abrí el tiro a 3, bajé el gas a 2 y ahí empezó el primer crack. Le doy cuatro estrellas; en taza encuentro chocolate y naranja.",
+        expect: {
+          requiredTools: ["query_records", "create_roast_batch"], allowedTools: ["query_records", "create_roast_batch"],
+          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
+          responsePatterns: ["12(?:\\.0+)?\\s*kg", "10\\.2(?:0+)?\\s*kg", "11:45", "705", "08:30", "510", "confirm"],
+          roastLoss: { greenInputKg: 12, roastedOutputKg: 10.2 },
+          toolCallContains: [{ name: "create_roast_batch", arguments: {
+            green_coffee_lot_id: IDS.greenLot,
+            name: "Perfil miel",
+            roast_date: "2026-09-18",
+            green_input_kg: 12,
+            roasted_output_kg: 10.2,
+            duration_seconds: 705,
+            charge_temperature_c: 180,
+            balance_point_temperature_c: 96,
+            setup_notes: "gas inicial al 70%",
+            checkpoints: [{ elapsed_seconds: 510, temperature_c: 190, airflow_setting: 3, gas_setting: 2 }],
+            sensory_rating: 4,
+            tasting_notes: "chocolate y naranja",
+          } }],
+          toolCallFieldPatterns: [{ name: "create_roast_batch", path: ["checkpoints", 0, "note"], pattern: "primer\\s+crack" }],
+        },
+      },
+      {
+        prompt: "Sí, confirma y guarda exactamente esa entrada de tostado.",
+        expect: {
+          requiredTools: ["create_roast_batch"], allowedTools: ["create_roast_batch"],
+          minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
+          confirmationTools: ["create_roast_batch"],
+          stateContains: [{ table: "roast_batches", fields: {
+            green_coffee_lot_id: IDS.greenLot,
+            name: "Perfil miel",
+            roast_date: "2026-09-18",
+            green_input_kg: "12",
+            roasted_output_kg: "10.2",
+            duration_seconds: 705,
+            charge_temperature_c: 180,
+            balance_point_temperature_c: 96,
+            setup_notes: "gas inicial al 70%",
+            checkpoints: [{ elapsed_seconds: 510, temperature_c: 190, airflow_setting: 3, gas_setting: 2 }],
+            sensory_rating: 4,
+            tasting_notes: "chocolate y naranja",
+            voided_at: null,
+          } }],
+        },
+      },
+    ],
+  },
+  {
+    id: "en_natural_message_creates_progressive_roast",
+    locale: "en",
+    description: "Translate a casual completion message into a minimal progressive roast entry without inventing optional controls.",
+    turns: [
+      {
+        prompt: "Please log the September 18, 2026 roast of Chiapas lavado as Afternoon sample. We loaded 8,000 g of green coffee and got 6,900 g after dropping it when the roast clock hit 11:30. That is everything we captured; nobody wrote down the drum temperatures or curve, and we have not cupped it yet.",
+        expect: {
+          requiredTools: ["query_records", "create_roast_batch"], allowedTools: ["query_records", "create_roast_batch"],
+          minToolCalls: 2, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 0,
+          responsePatterns: ["8(?:\\.0+)?\\s*kg", "6\\.9(?:0+)?\\s*kg", "11:30", "690", "confirm"],
+          roastLoss: { greenInputKg: 8, roastedOutputKg: 6.9 },
+          toolCallContains: [{ name: "create_roast_batch", arguments: {
+            green_coffee_lot_id: IDS.greenLot,
+            name: "Afternoon sample",
+            roast_date: "2026-09-18",
+            green_input_kg: 8,
+            roasted_output_kg: 6.9,
+            duration_seconds: 690,
+          } }],
+          toolCallOmits: [{ name: "create_roast_batch", fields: ["charge_temperature_c", "balance_point_temperature_c", "setup_notes", "checkpoints", "sensory_rating", "tasting_notes", "notes"] }],
+        },
+      },
+      {
+        prompt: "Confirmed. Save exactly that roast entry with only the available fields.",
+        expect: {
+          requiredTools: ["create_roast_batch"], allowedTools: ["create_roast_batch"],
+          minToolCalls: 1, maxToolCalls: 1, maxApiCalls: 2, mutationCount: 1,
+          confirmationTools: ["create_roast_batch"],
+          stateContains: [{ table: "roast_batches", fields: {
+            green_coffee_lot_id: IDS.greenLot,
+            name: "Afternoon sample",
+            roast_date: "2026-09-18",
+            green_input_kg: "8",
+            roasted_output_kg: "6.9",
+            duration_seconds: 690,
+            voided_at: null,
+          } }],
+        },
+      },
+    ],
+  },
+  {
     id: "es_purchase_status_not_applicable",
     locale: "es-MX",
     description: "Explain that stored purchases are active and do not have a status transition.",

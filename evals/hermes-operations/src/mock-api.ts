@@ -169,6 +169,19 @@ export class MockCafeApi {
       const body = await readJson(request);
       const created: Row = { id: nextId(this.counter++), ...normalizeRow(table, body) };
       if (table === "roast_batches") {
+        created.name ??= null;
+        created.roast_date ??= null;
+        created.roasted_at ??= null;
+        created.green_input_kg ??= null;
+        created.roasted_output_kg ??= null;
+        created.duration_seconds ??= null;
+        created.machine_settings ??= null;
+        created.charge_temperature_c ??= null;
+        created.balance_point_temperature_c ??= null;
+        created.setup_notes ??= null;
+        created.sensory_rating ??= null;
+        created.tasting_notes ??= null;
+        created.notes ??= null;
         created.voided_at = null;
         created.void_reason = null;
         created.checkpoints ??= [];

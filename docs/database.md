@@ -53,7 +53,8 @@ providers/{provider_id}/purchases/{purchase_id}/{filename}
 - optional `green_input_kg` and `roasted_output_kg`
 - optional `duration_seconds`
 - optional JSON object `machine_settings`
-- optional charge temperature, setup notes, curve checkpoints, sensory rating, tasting notes, and operator notes
+- optional charge temperature and `balance_point_temperature_c`, the minimum temperature after charge where the curve begins rising
+- optional setup notes, curve checkpoints, sensory rating, tasting notes, and operator notes
 - nullable `voided_at` and `void_reason` for reversal without deletion
 
 Every stored record is active and there is no draft or confirmed status. A roast requires only its green-coffee lot at creation and can be filled in progressively. When both weights are present, roasted output cannot exceed green input. Completeness is derived from `roast_date`, `green_input_kg`, and `roasted_output_kg` rather than persisted as lifecycle state.

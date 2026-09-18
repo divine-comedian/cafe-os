@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { coreFixture } from "../src/fixtures.ts";
 import { scenarios } from "../src/scenarios.ts";
 import { partialRequestScenarios } from "../src/partial-request-scenarios.ts";
 
@@ -15,16 +16,28 @@ const cafeTools = [
 ];
 
 describe("scenario catalog", () => {
-  it("triples the catalog to 18 uniquely named scenarios with balanced locales", () => {
-    expect(scenarios).toHaveLength(18);
-    expect(new Set(scenarios.map((scenario) => scenario.id)).size).toBe(18);
-    expect(scenarios.filter((scenario) => scenario.locale === "es-MX")).toHaveLength(9);
-    expect(scenarios.filter((scenario) => scenario.locale === "en")).toHaveLength(9);
+  it("keeps 22 uniquely named scenarios with balanced locales", () => {
+    expect(scenarios).toHaveLength(22);
+    expect(new Set(scenarios.map((scenario) => scenario.id)).size).toBe(22);
+    expect(scenarios.filter((scenario) => scenario.locale === "es-MX")).toHaveLength(11);
+    expect(scenarios.filter((scenario) => scenario.locale === "en")).toHaveLength(11);
   });
 
   it("positively exercises every Cafe OS MCP tool", () => {
     const required = new Set(scenarios.flatMap((scenario) => scenario.turns.flatMap((turn) => turn.expect.requiredTools ?? [])));
     expect([...required].sort()).toEqual([...cafeTools].sort());
+  });
+
+  it("models the current progressive roast table shape", () => {
+    const roastFields = [
+      "roast_date", "roasted_at", "green_input_kg", "roasted_output_kg", "duration_seconds",
+      "machine_settings", "charge_temperature_c", "balance_point_temperature_c", "setup_notes", "checkpoints", "sensory_rating",
+      "tasting_notes", "notes", "voided_at", "void_reason",
+    ];
+    for (const roast of coreFixture().roast_batches) {
+      for (const field of roastFields) expect(roast).toHaveProperty(field);
+      expect(Array.isArray(roast.checkpoints)).toBe(true);
+    }
   });
 
   it("keeps every turn within the configured 20-hop ceiling", () => {

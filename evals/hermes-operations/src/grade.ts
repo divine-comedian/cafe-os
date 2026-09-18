@@ -14,15 +14,28 @@ function sameValue(actual: unknown, expected: unknown): boolean {
   return Object.is(actual, expected);
 }
 
+function containsValue(actual: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual)
+      && actual.length === expected.length
+      && expected.every((value, index) => containsValue(actual[index], value));
+  }
+  if (expected && typeof expected === "object") {
+    return Boolean(actual) && typeof actual === "object" && !Array.isArray(actual)
+      && containsFields(actual as Record<string, unknown>, expected as Record<string, unknown>);
+  }
+  return sameValue(actual, expected);
+}
+
 function containsFields(actual: Record<string, unknown>, expected: Record<string, unknown>): boolean {
-  return Object.entries(expected).every(([key, value]) => {
-    const candidate = actual[key];
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      return Boolean(candidate) && typeof candidate === "object" && !Array.isArray(candidate)
-        && containsFields(candidate as Record<string, unknown>, value as Record<string, unknown>);
-    }
-    return sameValue(candidate, value);
-  });
+  return Object.entries(expected).every(([key, value]) => containsValue(actual[key], value));
+}
+
+function valueAtPath(value: unknown, path: Array<string | number>): unknown {
+  return path.reduce<unknown>((current, segment) => {
+    if (current === null || current === undefined || typeof current !== "object") return undefined;
+    return (current as Record<string | number, unknown>)[segment];
+  }, value);
 }
 
 export function gradeTurn(expectation: TurnExpectation, response: string, toolCalls: ToolCall[], operations: RecordedOperation[], usage: UsageReport, state: CafeState, harnessEvents: HarnessEvent[] = [], locale?: Locale, rawToolCalls: ToolCall[] = toolCalls): AssertionResult[] {
@@ -39,6 +52,16 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
   if (expectation.maxApiCalls !== undefined) results.push(check(Number(usage.api_calls ?? 0) <= expectation.maxApiCalls, `model hops <= ${expectation.maxApiCalls}; got ${usage.api_calls ?? 0}`));
   if (expectation.mutationCount !== undefined) results.push(check(operations.length === expectation.mutationCount, `REST mutations = ${expectation.mutationCount}; got ${operations.length}`));
   for (const pattern of expectation.responsePatterns ?? []) results.push(check(new RegExp(pattern, "iu").test(response), `response matches /${pattern}/iu`));
+  if (expectation.roastLoss) {
+    const reported = response.match(/(?:roast loss|merma(?: de tueste)?)[^\n%]*?(-?\d+(?:[.,]\d+)?)\s*%/iu);
+    const expected = ((expectation.roastLoss.greenInputKg - expectation.roastLoss.roastedOutputKg)
+      / expectation.roastLoss.greenInputKg) * 100;
+    const actual = reported ? Number(reported[1].replace(",", ".")) : null;
+    results.push(check(
+      actual === null || Math.abs(actual - expected) < 0.01,
+      `reported roast loss is accurate when present; expected ${expected}%, got ${actual ?? "omitted"}`,
+    ));
+  }
   if (!expectation.allowResponseIds) {
     results.push(check(
       !/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/iu.test(response),
@@ -56,6 +79,11 @@ export function gradeTurn(expectation: TurnExpectation, response: string, toolCa
   for (const expected of expectation.toolCallContains ?? []) {
     const found = toolCalls.some((call) => shortToolName(call.name) === expected.name && containsFields(call.arguments, expected.arguments));
     results.push(check(found, `tool call contains ${expected.name} arguments`));
+  }
+  for (const expected of expectation.toolCallFieldPatterns ?? []) {
+    const found = toolCalls.some((call) => shortToolName(call.name) === expected.name
+      && new RegExp(expected.pattern, "iu").test(String(valueAtPath(call.arguments, expected.path) ?? "")));
+    results.push(check(found, `${expected.name} field ${expected.path.join(".")} matches /${expected.pattern}/iu`));
   }
   for (const expected of expectation.toolCallOmits ?? []) {
     const calls = toolCalls.filter((call) => shortToolName(call.name) === expected.name);

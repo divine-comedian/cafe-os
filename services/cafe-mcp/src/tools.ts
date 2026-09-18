@@ -9,11 +9,13 @@ const nullableText = z.string().nullable();
 const decimal = z.union([z.number(), z.string()]);
 const nullableDecimal = decimal.nullable();
 const roastCheckpoint = z.object({
-  elapsed_seconds: z.number().int().min(0),
-  temperature_c: nullableDecimal.optional(),
-  airflow_setting: nullableDecimal.optional(),
-  gas_setting: nullableDecimal.optional(),
-  note: nullableText.optional(),
+  elapsed_seconds: z.number().int().min(0).describe(
+    "Elapsed roast time in whole seconds; convert an explicit MM:SS or HH:MM:SS value exactly",
+  ),
+  temperature_c: nullableDecimal.optional().describe("Observed roast temperature in degrees Celsius; omit when unknown"),
+  airflow_setting: nullableDecimal.optional().describe("Machine-relative airflow/tiro setting; never infer its scale or value"),
+  gas_setting: nullableDecimal.optional().describe("Machine-relative gas setting; never infer its scale or value"),
+  note: nullableText.optional().describe("Observed event or operator note, such as first crack"),
 }).strict();
 
 function exactProposalSchema<T extends z.ZodRawShape>(shape: T, requiredFields: string[]) {
@@ -409,7 +411,7 @@ export function registerCafeTools(
       inputSchema: exactProposalSchema({
         name: z.string().min(1).optional(),
         region: nullableText.optional(),
-        notes: nullableText.optional(),
+        notes: nullableText.optional().describe("Operator-supplied general roast note; do not synthesize missing-data statements or duplicate duration/drop information"),
       }, ["name"]),
       annotations: writeAnnotations,
     },
@@ -462,21 +464,22 @@ export function registerCafeTools(
     {
       title: "Cafe OS — Create progressive roast batch",
       description:
-        "Prepare a progressive roast record without writing. Only the green-coffee lot is required; omit unknown measurements so they can be added later. After approval, call this same tool with only confirmation_id; its receipt is authoritative.",
+        "Prepare a progressive roast record without writing. Only the green-coffee lot is required; omit unknown measurements so they can be added later. This tool persists supplied duration, charge temperature, balance-point temperature, setup notes, complete control points, sensory rating, and tasting notes, but it cannot start, pause, resume, or reset the browser-local live timer. Weight fields use kilograms. After approval, call this same tool with only confirmation_id; its receipt is authoritative.",
       inputSchema: exactProposalSchema({
         green_coffee_lot_id: uuid.optional(),
         name: nullableText.optional(),
         roast_date: z.string().date().nullable().optional(),
         roasted_at: z.string().nullable().optional().describe("ISO 8601 date-time when known"),
-        green_input_kg: nullableDecimal.optional(),
-        roasted_output_kg: nullableDecimal.optional(),
-        duration_seconds: z.number().int().min(0).nullable().optional(),
+        green_input_kg: nullableDecimal.optional().describe("Green-coffee input weight in kilograms; convert grams exactly when supplied"),
+        roasted_output_kg: nullableDecimal.optional().describe("Roasted output weight in kilograms; convert grams exactly when supplied"),
+        duration_seconds: z.number().int().min(0).nullable().optional().describe("Completed roast duration in whole seconds; not a live timer control"),
         machine_settings: z.record(z.string(), z.unknown()).nullable().optional(),
-        charge_temperature_c: nullableDecimal.optional(),
-        setup_notes: nullableText.optional(),
-        checkpoints: z.array(roastCheckpoint).optional(),
-        sensory_rating: z.number().int().min(1).max(5).nullable().optional(),
-        tasting_notes: nullableText.optional(),
+        charge_temperature_c: nullableDecimal.optional().describe("Charge temperature in degrees Celsius"),
+        balance_point_temperature_c: nullableDecimal.optional().describe("Observed minimum temperature in degrees Celsius after charge where the falling roast curve begins to rise; never infer it"),
+        setup_notes: nullableText.optional().describe("Pre-roast notes or setup observations"),
+        checkpoints: z.array(roastCheckpoint).optional().describe("Complete ordered list of operator-described control points; do not derive a checkpoint from total duration, drop/end time, or missing curve data"),
+        sensory_rating: z.number().int().min(1).max(5).nullable().optional().describe("Operator sensory rating from 1 to 5"),
+        tasting_notes: nullableText.optional().describe("Post-roast flavor or cupping notes"),
         notes: nullableText.optional(),
       }, ["green_coffee_lot_id"]),
       annotations: writeAnnotations,
@@ -499,15 +502,16 @@ export function registerCafeTools(
     received_weight_kg: decimal.optional(),
     roast_date: z.string().date().nullable().optional(),
     roasted_at: z.string().nullable().optional(),
-    green_input_kg: nullableDecimal.optional(),
-    roasted_output_kg: nullableDecimal.optional(),
-    duration_seconds: z.number().int().min(0).nullable().optional(),
+    green_input_kg: nullableDecimal.optional().describe("Green-coffee input weight in kilograms; convert grams exactly when supplied"),
+    roasted_output_kg: nullableDecimal.optional().describe("Roasted output weight in kilograms; convert grams exactly when supplied"),
+    duration_seconds: z.number().int().min(0).nullable().optional().describe("Completed roast duration in whole seconds; not a live timer control"),
     machine_settings: z.record(z.string(), z.unknown()).nullable().optional(),
-    charge_temperature_c: nullableDecimal.optional(),
-    setup_notes: nullableText.optional(),
-    checkpoints: z.array(roastCheckpoint).optional(),
-    sensory_rating: z.number().int().min(1).max(5).nullable().optional(),
-    tasting_notes: nullableText.optional(),
+    charge_temperature_c: nullableDecimal.optional().describe("Charge temperature in degrees Celsius"),
+    balance_point_temperature_c: nullableDecimal.optional().describe("Observed minimum temperature in degrees Celsius after charge where the falling roast curve begins to rise; never infer it"),
+    setup_notes: nullableText.optional().describe("Pre-roast notes or setup observations"),
+    checkpoints: z.array(roastCheckpoint).optional().describe("Full replacement array of operator-described control points: preserve unchanged points and do not derive one from total duration or drop/end time"),
+    sensory_rating: z.number().int().min(1).max(5).nullable().optional().describe("Operator sensory rating from 1 to 5"),
+    tasting_notes: nullableText.optional().describe("Post-roast flavor or cupping notes"),
     notes: nullableText.optional(),
   }).strict();
   const updateInput = exactProposalSchema({
@@ -520,7 +524,7 @@ export function registerCafeTools(
       provider: new Set(["name", "region", "notes"]),
       purchase: new Set(["provider_id", "green_coffee_lot_id", "purchased_at", "received_weight_kg", "total_amount", "currency", "payment_method", "notes"]),
       green_coffee_lot: new Set(["name", "origin", "variety", "notes"]),
-      roast_batch: new Set(["green_coffee_lot_id", "name", "roast_date", "roasted_at", "green_input_kg", "roasted_output_kg", "duration_seconds", "machine_settings", "charge_temperature_c", "setup_notes", "checkpoints", "sensory_rating", "tasting_notes", "notes"]),
+      roast_batch: new Set(["green_coffee_lot_id", "name", "roast_date", "roasted_at", "green_input_kg", "roasted_output_kg", "duration_seconds", "machine_settings", "charge_temperature_c", "balance_point_temperature_c", "setup_notes", "checkpoints", "sensory_rating", "tasting_notes", "notes"]),
     };
     if (!Object.keys(value.fields).length) {
       context.addIssue({ code: "custom", path: ["fields"], message: "At least one field is required" });
@@ -537,7 +541,7 @@ export function registerCafeTools(
     {
       title: "Cafe OS — Update a record",
       description:
-        "Prepare an exact record patch without writing; null explicitly clears a nullable field. Roast fields may be added progressively. After approval, call this same tool with only confirmation_id.",
+        "Prepare an exact record patch without writing; null explicitly clears a nullable field. Roast measurements may be added progressively, but this tool cannot operate the browser-local live timer. A roast checkpoints patch replaces the complete array: read the exact roast first and preserve every unchanged point. After approval, call this same tool with only confirmation_id.",
       inputSchema: updateInput,
       annotations: {
         ...writeAnnotations,

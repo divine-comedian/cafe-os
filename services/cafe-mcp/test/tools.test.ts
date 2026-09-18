@@ -317,6 +317,41 @@ describe("Cafe OS MCP tools", () => {
     ]);
   });
 
+  it("prepares and stores durable roast timing and complete control points", async () => {
+    const id = "5b8eddb3-dbc2-4c48-b33d-f8acc512681a";
+    const checkpoints = [
+      { elapsed_seconds: 90, temperature_c: "102.5", note: "amarillo" },
+      { elapsed_seconds: 420, temperature_c: "188", airflow_setting: "3", gas_setting: "2", note: "primer crack" },
+    ];
+    api.responses.push(
+      { data: { id, name: "Tueste mañana", checkpoints: [checkpoints[0]] } },
+      { data: { id, name: "Tueste mañana", duration_seconds: 615, checkpoints } },
+    );
+    const prepared = await client.callTool({
+      name: "update_record",
+      arguments: {
+        resource: "roast_batch",
+        id,
+        fields: { duration_seconds: 615, checkpoints },
+      },
+    });
+    expect(prepared.isError).not.toBe(true);
+    expect(api.calls).toEqual([{ method: "GET", route: `/roast-batches/${id}`, body: undefined }]);
+
+    const confirmationId = ((prepared.structuredContent as Record<string, unknown> | undefined)
+      ?.pending_confirmation as Record<string, unknown>).id;
+    const response = await client.callTool({
+      name: "update_record",
+      arguments: { confirmation_id: confirmationId },
+    });
+    expect(response.isError).not.toBe(true);
+    expect(api.calls.at(-1)).toEqual({
+      method: "PATCH",
+      route: `/roast-batches/${id}`,
+      body: { duration_seconds: 615, checkpoints },
+    });
+  });
+
   it("rejects fields that do not belong to the selected resource", async () => {
     const response = await client.callTool({
       name: "update_record",

@@ -14,6 +14,7 @@ type RoastDraft = {
   greenInputGrams: string;
   roastedOutputGrams: string;
   chargeTemperatureC: string;
+  balancePointTemperatureC: string;
   setupNotes: string;
   tastingNotes: string;
   rating: number;
@@ -32,6 +33,7 @@ function emptyRoastDraft(): RoastDraft {
     greenInputGrams: "",
     roastedOutputGrams: "",
     chargeTemperatureC: "",
+    balancePointTemperatureC: "",
     setupNotes: "",
     tastingNotes: "",
     rating: 0,
@@ -262,6 +264,7 @@ function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; stor
   const elapsedSeconds = elapsedAt(draft, clockNow);
   const inventory = draft.lotId ? greenCoffeeInventory(draft.lotId, data.purchases, data.roasts) : null;
   const selectedLot = data.lots.find((lot) => lot.id === draft.lotId);
+  const timerEnabled = Boolean(selectedLot);
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(draft));
@@ -271,11 +274,21 @@ function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; stor
     const interval = window.setInterval(() => setClockNow(Date.now()), 500);
     return () => window.clearInterval(interval);
   }, [draft.timer.runningSince]);
+  useEffect(() => {
+    if (selectedLot || draft.timer.runningSince === null) return;
+    const now = Date.now();
+    setClockNow(now);
+    setDraft((current) => ({
+      ...current,
+      timer: { ...current.timer, elapsedSeconds: elapsedAt(current, now), runningSince: null },
+    }));
+  }, [selectedLot, draft.timer.runningSince]);
 
   function update<K extends keyof RoastDraft>(key: K, value: RoastDraft[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
   function startTimer() {
+    if (!selectedLot) return;
     const now = Date.now();
     setClockNow(now);
     setDraft((current) => current.timer.runningSince !== null ? current : {
@@ -288,6 +301,7 @@ function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; stor
     });
   }
   function pauseTimer() {
+    if (!selectedLot) return;
     const now = Date.now();
     setClockNow(now);
     setDraft((current) => ({
@@ -296,6 +310,7 @@ function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; stor
     }));
   }
   function resetTimer() {
+    if (!selectedLot) return;
     setClockNow(Date.now());
     setDraft((current) => ({
       ...current,
@@ -368,6 +383,7 @@ function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; stor
       ...(roastedOutputKg !== null ? { roasted_output_kg: roastedOutputKg } : {}),
       ...(savedElapsedSeconds > 0 ? { duration_seconds: savedElapsedSeconds } : {}),
       ...(draft.chargeTemperatureC ? { charge_temperature_c: draft.chargeTemperatureC } : {}),
+      ...(draft.balancePointTemperatureC ? { balance_point_temperature_c: draft.balancePointTemperatureC } : {}),
       ...(draft.setupNotes.trim() ? { setup_notes: draft.setupNotes.trim() } : {}),
       checkpoints: draft.checkpoints,
       ...(draft.rating > 0 ? { sensory_rating: draft.rating } : {}),
@@ -399,7 +415,7 @@ function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; stor
           <Field label="Fecha"><input type="date" value={draft.roastDate} onChange={(event) => update("roastDate", event.target.value)} /></Field>
           <Field label="Carga" unit="g" optional><input type="number" min="1" step="1" value={draft.greenInputGrams} onChange={(event) => update("greenInputGrams", event.target.value)} placeholder="120" /></Field>
           <Field label="Temp. de carga" unit="°C" optional><input type="number" min="0" step="0.1" value={draft.chargeTemperatureC} onChange={(event) => update("chargeTemperatureC", event.target.value)} placeholder="180" /></Field>
-          <Field label="Punto de equilibrio" optional><input disabled placeholder="Pendiente de confirmar" title="Falta confirmar con el cliente qué representa y en qué unidad se captura." /></Field>
+          <Field label="Punto de equilibrio" unit="°C" optional><input type="number" min="0" step="0.1" value={draft.balancePointTemperatureC} onChange={(event) => update("balancePointTemperatureC", event.target.value)} placeholder="Temperatura mínima" title="Temperatura mínima después de la carga, donde la curva deja de bajar y empieza a subir." /></Field>
           <Field label="Peso final" unit="g" optional><input type="number" min="1" step="1" value={draft.roastedOutputGrams} onChange={(event) => update("roastedOutputGrams", event.target.value)} placeholder="Opcional" /></Field>
           <Field label="Notas previas" optional full><input value={draft.setupNotes} onChange={(event) => update("setupNotes", event.target.value)} placeholder="Algo que valga la pena recordar antes del tostado" /></Field>
         </div>
@@ -409,11 +425,12 @@ function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; stor
       <section className="roast-timer" aria-live="polite">
         <div><span>Tiempo transcurrido</span><strong>{formatElapsed(elapsedSeconds)}</strong><small>{elapsedSeconds >= 3600 ? "HH:MM:SS" : "MM:SS"}</small></div>
         <div className="roast-timer-actions">
-          <button type="button" className="button button--primary" onClick={startTimer} disabled={draft.timer.runningSince !== null}>{draft.timer.runningSince !== null ? "Corriendo…" : elapsedSeconds > 0 ? "Reanudar" : "Iniciar"}</button>
-          <button type="button" className="button" onClick={pauseTimer} disabled={draft.timer.runningSince === null}>Pausar</button>
-          <button type="button" className="button" onClick={resetTimer}>Reiniciar</button>
+          <button type="button" className="button button--primary" onClick={startTimer} disabled={!timerEnabled || draft.timer.runningSince !== null}>{draft.timer.runningSince !== null ? "Corriendo…" : elapsedSeconds > 0 ? "Reanudar" : "Iniciar"}</button>
+          <button type="button" className="button" onClick={pauseTimer} disabled={!timerEnabled || draft.timer.runningSince === null}>Pausar</button>
+          <button type="button" className="button" onClick={resetTimer} disabled={!timerEnabled}>Reiniciar</button>
         </div>
       </section>
+      {!timerEnabled && <p className="timer-requirement">Selecciona primero un lote de café verde para habilitar el cronómetro.</p>}
 
       <section className="roast-log-section">
         <div className="roast-section-title"><div><p className="eyebrow">Curva manual</p><h2>Puntos de control</h2></div><small>El tiro y el gas usan la escala de tu máquina.</small></div>
@@ -444,6 +461,7 @@ function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; stor
       <div><span>Carga verde</span><strong>{draft.greenInputGrams ? `${draft.greenInputGrams} g` : "Pendiente"}</strong></div>
       <div><span>Peso final</span><strong>{draft.roastedOutputGrams ? `${draft.roastedOutputGrams} g` : "Pendiente"}</strong></div>
       <div><span>Duración</span><strong>{pending.duration_seconds ? formatElapsed(Number(pending.duration_seconds)) : "Pendiente"}</strong></div>
+      <div><span>Punto de equilibrio</span><strong>{draft.balancePointTemperatureC ? `${draft.balancePointTemperatureC} °C` : "Pendiente"}</strong></div>
       <div><span>Puntos de control</span><strong>{draft.checkpoints.length}</strong></div>
       <div><span>Calificación</span><strong>{draft.rating > 0 ? `${draft.rating} / 5` : "Pendiente"}</strong></div>
     </div>{error && <div className="form-error">{error}</div>}<footer className="modal-actions"><button className="button button--ghost" onClick={() => setPending(null)} disabled={busy}>← Corregir</button><button className="button button--primary" onClick={() => void confirmSave()} disabled={busy}>{busy ? "Guardando…" : "Confirmar y guardar"}</button></footer></div></Modal>}
@@ -501,7 +519,7 @@ function EditRoastModal({ roast, data, onClose, onSave }: { roast: RoastBatch; d
     if (greenInput !== null && roastedOutput !== null && roastedOutput > greenInput) { setError("La salida tostada no puede superar la entrada verde."); return; }
     if (greenInput !== null && greenInput > inventory.availableKg + 1e-9) { setError(`Solo hay ${weight(inventory.availableKg)} disponibles para este lote.`); return; }
     setBusy(true);
-    const payload = { green_coffee_lot_id: lotId, name: raw.name ? String(raw.name).trim() : null, roast_date: raw.roast_date || null, roasted_at: isoFromLocalDateTime(raw.roasted_at), green_input_kg: raw.green_input_kg || null, roasted_output_kg: raw.roasted_output_kg || null, duration_seconds: raw.duration_minutes ? Math.round(Number(raw.duration_minutes) * 60) : null, charge_temperature_c: raw.charge_temperature_c || null, setup_notes: raw.setup_notes ? String(raw.setup_notes).trim() : null, sensory_rating: raw.sensory_rating ? Number(raw.sensory_rating) : null, tasting_notes: raw.tasting_notes ? String(raw.tasting_notes).trim() : null, notes: raw.notes ? String(raw.notes).trim() : null };
+    const payload = { green_coffee_lot_id: lotId, name: raw.name ? String(raw.name).trim() : null, roast_date: raw.roast_date || null, roasted_at: isoFromLocalDateTime(raw.roasted_at), green_input_kg: raw.green_input_kg || null, roasted_output_kg: raw.roasted_output_kg || null, duration_seconds: raw.duration_minutes ? Math.round(Number(raw.duration_minutes) * 60) : null, charge_temperature_c: raw.charge_temperature_c || null, balance_point_temperature_c: raw.balance_point_temperature_c || null, setup_notes: raw.setup_notes ? String(raw.setup_notes).trim() : null, sensory_rating: raw.sensory_rating ? Number(raw.sensory_rating) : null, tasting_notes: raw.tasting_notes ? String(raw.tasting_notes).trim() : null, notes: raw.notes ? String(raw.notes).trim() : null };
     try { await onSave(payload); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo actualizar el tostado."); setBusy(false); }
   }
   return <Modal onClose={onClose} title="Editar tostado" eyebrow="Guardar actualiza inventario"><form className="entry-form" onSubmit={submit}><div className="form-grid">
@@ -514,6 +532,7 @@ function EditRoastModal({ roast, data, onClose, onSave }: { roast: RoastBatch; d
     <Field label="Salida tostada" unit="kg" optional><input name="roasted_output_kg" type="number" min="0.001" step="0.001" defaultValue={roast.roasted_output_kg ?? ""} /></Field>
     <Field label="Duración" unit="min" optional><input name="duration_minutes" type="number" min="0" step="0.1" defaultValue={roast.duration_seconds === null ? "" : roast.duration_seconds / 60} /></Field>
     <Field label="Temperatura de carga" unit="°C" optional><input name="charge_temperature_c" type="number" min="0" step="0.1" defaultValue={roast.charge_temperature_c ?? ""} /></Field>
+    <Field label="Punto de equilibrio" unit="°C" optional><input name="balance_point_temperature_c" type="number" min="0" step="0.1" defaultValue={roast.balance_point_temperature_c ?? ""} title="Temperatura mínima después de la carga, donde la curva empieza a subir." /></Field>
     <Field label="Notas previas" optional full><input name="setup_notes" defaultValue={roast.setup_notes || ""} /></Field>
     <Field label="Calificación" optional><select name="sensory_rating" defaultValue={roast.sensory_rating ?? ""}><option value="">Sin calificar</option>{[1,2,3,4,5].map((rating) => <option key={rating} value={rating}>{rating} / 5</option>)}</select></Field>
     <Field label="Notas de cata" optional><input name="tasting_notes" defaultValue={roast.tasting_notes || ""} /></Field>
@@ -531,7 +550,7 @@ function EntryModal({ kind, data, onClose, onSave }: { kind: EntryKind; data: Op
     if (kind === "provider") value = { name: String(raw.name).trim(), ...(raw.region ? { region: String(raw.region).trim() } : {}) };
     else if (kind === "purchase") value = { provider_id: raw.provider_id, ...(raw.purchased_at ? { purchased_at: raw.purchased_at } : {}), received_weight_kg: raw.received_weight_kg, total_amount: raw.total_amount, currency: "MXN", ...(raw.payment_method ? { payment_method: raw.payment_method } : {}), ...(raw.lot_mode === "existing" ? { green_coffee_lot_id: raw.green_coffee_lot_id } : { new_green_coffee_lot: { name: String(raw.lot_name).trim(), ...(raw.origin ? { origin: String(raw.origin).trim() } : {}), ...(raw.variety ? { variety: String(raw.variety).trim() } : {}) } }) };
     else if (kind === "lot") value = { name: String(raw.name).trim(), ...(raw.origin ? { origin: String(raw.origin).trim() } : {}), ...(raw.variety ? { variety: String(raw.variety).trim() } : {}) };
-    else { const inventory = greenCoffeeInventory(String(raw.green_coffee_lot_id),data.purchases,data.roasts); const greenInput = raw.green_input_kg ? Number(raw.green_input_kg) : null; const roastedOutput = raw.roasted_output_kg ? Number(raw.roasted_output_kg) : null; if (greenInput !== null && roastedOutput !== null && roastedOutput > greenInput) { setError("La salida tostada no puede superar la entrada verde."); return; } if (greenInput !== null && greenInput > inventory.availableKg + 1e-9) { setError(`Solo hay ${weight(inventory.availableKg)} disponibles para este lote.`); return; } value = { green_coffee_lot_id: raw.green_coffee_lot_id, ...(raw.name ? { name: String(raw.name).trim() } : {}), ...(raw.roast_date ? { roast_date: raw.roast_date } : {}), ...(raw.roasted_at ? { roasted_at: isoFromLocalDateTime(raw.roasted_at) } : {}), ...(raw.green_input_kg ? { green_input_kg: raw.green_input_kg } : {}), ...(raw.roasted_output_kg ? { roasted_output_kg: raw.roasted_output_kg } : {}), ...(raw.duration_minutes ? { duration_seconds: Math.round(Number(raw.duration_minutes) * 60) } : {}), ...(raw.charge_temperature_c ? { charge_temperature_c: raw.charge_temperature_c } : {}), ...(raw.setup_notes ? { setup_notes: String(raw.setup_notes).trim() } : {}), ...(raw.sensory_rating ? { sensory_rating: Number(raw.sensory_rating) } : {}), ...(raw.tasting_notes ? { tasting_notes: String(raw.tasting_notes).trim() } : {}), ...(raw.notes ? { notes: String(raw.notes).trim() } : {}) }; }
+    else { const inventory = greenCoffeeInventory(String(raw.green_coffee_lot_id),data.purchases,data.roasts); const greenInput = raw.green_input_kg ? Number(raw.green_input_kg) : null; const roastedOutput = raw.roasted_output_kg ? Number(raw.roasted_output_kg) : null; if (greenInput !== null && roastedOutput !== null && roastedOutput > greenInput) { setError("La salida tostada no puede superar la entrada verde."); return; } if (greenInput !== null && greenInput > inventory.availableKg + 1e-9) { setError(`Solo hay ${weight(inventory.availableKg)} disponibles para este lote.`); return; } value = { green_coffee_lot_id: raw.green_coffee_lot_id, ...(raw.name ? { name: String(raw.name).trim() } : {}), ...(raw.roast_date ? { roast_date: raw.roast_date } : {}), ...(raw.roasted_at ? { roasted_at: isoFromLocalDateTime(raw.roasted_at) } : {}), ...(raw.green_input_kg ? { green_input_kg: raw.green_input_kg } : {}), ...(raw.roasted_output_kg ? { roasted_output_kg: raw.roasted_output_kg } : {}), ...(raw.duration_minutes ? { duration_seconds: Math.round(Number(raw.duration_minutes) * 60) } : {}), ...(raw.charge_temperature_c ? { charge_temperature_c: raw.charge_temperature_c } : {}), ...(raw.balance_point_temperature_c ? { balance_point_temperature_c: raw.balance_point_temperature_c } : {}), ...(raw.setup_notes ? { setup_notes: String(raw.setup_notes).trim() } : {}), ...(raw.sensory_rating ? { sensory_rating: Number(raw.sensory_rating) } : {}), ...(raw.tasting_notes ? { tasting_notes: String(raw.tasting_notes).trim() } : {}), ...(raw.notes ? { notes: String(raw.notes).trim() } : {}) }; }
     setProposal(value);
   }
   async function save() { if (!proposal) return; setBusy(true); setError(""); try { await onSave(kind,proposal); } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo guardar."); setBusy(false); } }
@@ -560,7 +579,7 @@ function Fields({ kind, data }: { kind: EntryKind; data: OperationsData }) {
     <p className="form-note field--full">Al guardar, el peso y monto entrarán al inventario y al costo promedio ponderado del lote.</p>
   </div>;
   if (kind === "lot") return <div className="form-grid"><Field label="Nombre del lote" full><input name="name" placeholder="Ej. Cosecha 2026 · Lote 04" required autoFocus /></Field><Field label="Origen" optional><input name="origin" list="lot-origins" placeholder="Ej. Chiapas" /><datalist id="lot-origins">{knownOrigins.map((origin) => <option key={origin} value={origin} />)}</datalist></Field><Field label="Variedad" optional><input name="variety" list="lot-varieties" placeholder="Ej. Bourbon" /><datalist id="lot-varieties">{knownVarieties.map((variety) => <option key={variety} value={variety} />)}</datalist></Field><p className="form-note field--full">El peso y el costo pertenecen a cada compra. Después podrás asociar varias compras con este lote.</p></div>;
-  return <div className="form-grid"><Field label="Lote de café verde" full><select name="green_coffee_lot_id" required value={selectedRoastLotId} onChange={(event) => setSelectedRoastLotId(event.target.value)} autoFocus><option value="" disabled>Selecciona un lote</option>{data.lots.map((x) => { const inventory = greenCoffeeInventory(x.id,data.purchases,data.roasts); const purchases = data.purchases.filter((purchase) => purchase.green_coffee_lot_id === x.id); const cost = weightedGreenUnitCost(purchases); return <option key={x.id} value={x.id}>{x.name} · {weight(inventory.availableKg)} disponibles · {cost === null ? "sin costo" : money(cost) + "/kg"}</option>; })}</select></Field>{selectedInventory && <p className="inventory-note field--full"><strong>{weight(selectedInventory.availableKg)}</strong> disponibles · {weight(selectedInventory.purchasedKg)} comprados · {weight(selectedInventory.reservedKg)} usados</p>}<Field label="Nombre" optional full><input name="name" placeholder="Ej. Perfil medio" /></Field><Field label="Fecha" optional><input name="roast_date" type="date" /></Field><Field label="Inicio exacto" optional><input name="roasted_at" type="datetime-local" /></Field><Field label="Entrada verde" unit="kg" optional><input name="green_input_kg" type="number" min="0.001" max={selectedInventory?.availableKg} step="0.001" /></Field><Field label="Salida tostada" unit="kg" optional><input name="roasted_output_kg" type="number" min="0.001" step="0.001" /></Field><Field label="Duración" unit="min" optional><input name="duration_minutes" type="number" min="0" step="0.1" /></Field><Field label="Temperatura de carga" unit="°C" optional><input name="charge_temperature_c" type="number" min="0" step="0.1" /></Field><Field label="Notas previas" optional full><input name="setup_notes" /></Field><Field label="Calificación" optional><select name="sensory_rating" defaultValue=""><option value="">Sin calificar</option>{[1,2,3,4,5].map((rating) => <option key={rating} value={rating}>{rating} / 5</option>)}</select></Field><Field label="Notas de cata" optional><input name="tasting_notes" /></Field><Field label="Notas operativas" optional full><input name="notes" /></Field><p className="form-note field--full">Puedes guardar ahora y completar el registro conforme avance el tostado. El peso verde afectará el inventario en cuanto se capture.</p></div>;
+  return <div className="form-grid"><Field label="Lote de café verde" full><select name="green_coffee_lot_id" required value={selectedRoastLotId} onChange={(event) => setSelectedRoastLotId(event.target.value)} autoFocus><option value="" disabled>Selecciona un lote</option>{data.lots.map((x) => { const inventory = greenCoffeeInventory(x.id,data.purchases,data.roasts); const purchases = data.purchases.filter((purchase) => purchase.green_coffee_lot_id === x.id); const cost = weightedGreenUnitCost(purchases); return <option key={x.id} value={x.id}>{x.name} · {weight(inventory.availableKg)} disponibles · {cost === null ? "sin costo" : money(cost) + "/kg"}</option>; })}</select></Field>{selectedInventory && <p className="inventory-note field--full"><strong>{weight(selectedInventory.availableKg)}</strong> disponibles · {weight(selectedInventory.purchasedKg)} comprados · {weight(selectedInventory.reservedKg)} usados</p>}<Field label="Nombre" optional full><input name="name" placeholder="Ej. Perfil medio" /></Field><Field label="Fecha" optional><input name="roast_date" type="date" /></Field><Field label="Inicio exacto" optional><input name="roasted_at" type="datetime-local" /></Field><Field label="Entrada verde" unit="kg" optional><input name="green_input_kg" type="number" min="0.001" max={selectedInventory?.availableKg} step="0.001" /></Field><Field label="Salida tostada" unit="kg" optional><input name="roasted_output_kg" type="number" min="0.001" step="0.001" /></Field><Field label="Duración" unit="min" optional><input name="duration_minutes" type="number" min="0" step="0.1" /></Field><Field label="Temperatura de carga" unit="°C" optional><input name="charge_temperature_c" type="number" min="0" step="0.1" /></Field><Field label="Punto de equilibrio" unit="°C" optional><input name="balance_point_temperature_c" type="number" min="0" step="0.1" title="Temperatura mínima después de la carga, donde la curva empieza a subir." /></Field><Field label="Notas previas" optional full><input name="setup_notes" /></Field><Field label="Calificación" optional><select name="sensory_rating" defaultValue=""><option value="">Sin calificar</option>{[1,2,3,4,5].map((rating) => <option key={rating} value={rating}>{rating} / 5</option>)}</select></Field><Field label="Notas de cata" optional><input name="tasting_notes" /></Field><Field label="Notas operativas" optional full><input name="notes" /></Field><p className="form-note field--full">Puedes guardar ahora y completar el registro conforme avance el tostado. El peso verde afectará el inventario en cuanto se capture.</p></div>;
 }
 function Field({ label, unit, optional, full, children }: { label: string; unit?: string; optional?: boolean; full?: boolean; children: ReactNode }) { return <label className={full ? "field--full" : ""}>{label}{unit && <span className="unit">{unit}</span>}{optional && <span className="optional">Opcional</span>}{children}</label>; }
 

@@ -33,6 +33,34 @@ describe("eval grading", () => {
     expect(decoded.effective).toEqual([{ name: "mcp__cafe_os__query_records", arguments: { resource: "provider" } }]);
   });
 
+  it("matches the structured roast checkpoint array recursively", () => {
+    const checkpoints = [
+      { elapsed_seconds: 510, temperature_c: 190, airflow_setting: 3, gas_setting: 2, note: "primer crack" },
+    ];
+    const assertions = gradeTurn(
+      {
+        toolCallContains: [{ name: "create_roast_batch", arguments: { checkpoints } }],
+        toolCallFieldPatterns: [{ name: "create_roast_batch", path: ["checkpoints", 0, "note"], pattern: "primer\\s+crack" }],
+        stateContains: [{ table: "roast_batches", fields: { id: "new-roast", checkpoints } }],
+      },
+      "Prepared for confirmation.",
+      [{ name: "mcp__cafe_os__create_roast_batch", arguments: { checkpoints: [{ ...checkpoints[0], temperature_c: "190" }] } }],
+      [],
+      { api_calls: 1 },
+      { ...coreFixture(), roast_batches: [{ id: "new-roast", checkpoints: [{ ...checkpoints[0], gas_setting: "2" }] }] },
+    );
+    expect(assertions.filter((item) => item.message.includes("contains") || item.message.includes("matches")).every((item) => item.pass)).toBe(true);
+  });
+
+  it("rejects an incorrectly placed roast-loss decimal", () => {
+    const assertions = gradeTurn(
+      { roastLoss: { greenInputKg: 12, roastedOutputKg: 10.2 } },
+      "Salida tostada: 10.2 kg — merma 1.5%.",
+      [], [], { api_calls: 1 }, coreFixture(),
+    );
+    expect(assertions.find((item) => item.message.startsWith("reported roast loss"))?.pass).toBe(false);
+  });
+
   it("rejects unsupported optional fields and checks the terminal state", () => {
     const assertions = gradeTurn(
       {

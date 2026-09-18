@@ -2,7 +2,7 @@
 
 This suite measures how the real Hermes agent handles Cafe OS semantics in Mexican Spanish and English. It launches a stateful mock REST API, exposes the production TypeScript MCP adapter through an isolated Hermes profile, and never touches Supabase.
 
-The `core` suite contains 18 scenarios—exactly nine `es-MX` and nine English—and 28 conversational turns. It covers reads, calculations, traceability, ambiguity, missing required data, all four create flows, progressive roast patching, rejection of lifecycle statuses, roast voiding, guarded and successful deletion, purchase-document upload, dynamic discovery, and stored confirmation. The reviewed ten-tool Cafe catalog has a normalized schema snapshot.
+The `core` suite contains 22 scenarios—exactly eleven `es-MX` and eleven English—and 35 conversational turns. It covers reads, calculations, traceability, ambiguity, missing required data, all four create flows, natural-language roast-entry capture with unit and elapsed-time conversion, progressive roast and checkpoint patching, browser-local timer boundaries, rejection of lifecycle statuses, roast voiding, guarded and successful deletion, purchase-document upload, dynamic discovery, and stored confirmation. The reviewed ten-tool Cafe catalog has a normalized schema snapshot.
 
 The `partial` suite adds eight scenarios and 21 turns for terse messages and voice-note-like input. It distinguishes required from optional fields, verifies that missing required facts produce one focused question and no partial proposal or mutation, carries sequential follow-up answers into a proposal, confirms that unknown optional fields are omitted rather than invented, and covers close-name recovery after a speech-to-text error. It includes provider, purchase, green-lot, roast, and update workflows in English and Mexican Spanish.
 
@@ -15,7 +15,7 @@ For every turn it records:
 - sanitized router, model-hop, tool-start/end, budget, and terminal events without arguments or record contents;
 - DeepSeek router tokens, duration, selected IDs, confidence, fallback reason, and cost separately from Qwen, plus combined totals.
 
-Tool arguments can be checked as partial nested objects, while state checks can assert either presence or absence. This catches wrong IDs, fields, and targets even when the final prose sounds correct.
+Tool arguments and persisted state can be checked as partial nested objects with exact recursive array matching for structured roast checkpoints. State checks can assert either presence or absence. This catches wrong IDs, fields, control-point ordering, and targets even when the final prose sounds correct.
 
 ## Setup
 

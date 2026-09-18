@@ -45,7 +45,7 @@ POST /v1/purchases/with-green-coffee-lot  # create active purchase
 POST /v1/roast-batches                    # create progressive roast batch
 ```
 
-All records are active when created and have no draft or confirmed status. Roast measurements can be added progressively with `PATCH`. An erroneous roast can be voided without deleting it:
+All records are active when created and have no draft or confirmed status. Roast measurements can be added progressively with `PATCH`. `balance_point_temperature_c` stores the optional observed minimum temperature after charge where the falling roast curve begins to rise; it is distinct from charge and checkpoint temperatures. An erroneous roast can be voided without deleting it:
 
 ```text
 POST /v1/roast-batches/{id}/void

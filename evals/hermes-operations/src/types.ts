@@ -25,10 +25,12 @@ export interface TurnExpectation {
   maxApiCalls?: number;
   mutationCount?: number;
   responsePatterns?: string[];
+  roastLoss?: { greenInputKg: number; roastedOutputKg: number };
   allowResponseIds?: boolean;
   stateContains?: Array<{ table: TableName; fields: Record<string, unknown> }>;
   stateAbsent?: Array<{ table: TableName; fields: Record<string, unknown> }>;
   toolCallContains?: Array<{ name: string; arguments: Record<string, unknown> }>;
+  toolCallFieldPatterns?: Array<{ name: string; path: Array<string | number>; pattern: string }>;
   toolCallOmits?: Array<{ name: string; fields: string[] }>;
   confirmationTools?: string[];
   routerRequiresUserInput?: string[];

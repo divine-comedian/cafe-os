@@ -536,6 +536,7 @@ describe("Cafe API", () => {
         green_input_kg: "1.000",
         roasted_output_kg: "0.850",
         charge_temperature_c: "198.5",
+        balance_point_temperature_c: "96.5",
         checkpoints: [{
           elapsed_seconds: 90,
           temperature_c: "102.5",
@@ -551,6 +552,7 @@ describe("Cafe API", () => {
     expect(updated.json().data).toMatchObject({
       roast_date: "2026-09-18",
       charge_temperature_c: "198.5",
+      balance_point_temperature_c: "96.5",
       checkpoints: [{ elapsed_seconds: 90, temperature_c: "102.5", note: "punto amarillo" }],
       sensory_rating: 4,
       tasting_notes: "chocolate y cítricos",

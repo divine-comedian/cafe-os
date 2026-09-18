@@ -54,14 +54,14 @@ export const CAFE_TOOL_CATALOG: readonly CafeToolCatalogEntry[] = [
   {
     name: "create_roast_batch",
     kind: "write",
-    description: "Create a progressive roast batch linked to a green coffee lot after human confirmation.",
-    searchTerms: ["create", "add", "roast", "batch", "tueste", "tostado", "crear", "agregar"],
+    description: "Create a progressive roast batch with optional duration, temperatures, control points, rating, and tasting notes after human confirmation.",
+    searchTerms: ["create", "add", "roast", "batch", "duration", "temperature", "balance point", "turning point", "rating", "taste", "tueste", "tostado", "duracion", "temperatura", "punto de equilibrio", "calificacion", "cata", "crear", "agregar"],
   },
   {
     name: "update_record",
     kind: "write",
-    description: "Add or correct fields on an existing Cafe OS record.",
-    searchTerms: ["update", "patch", "edit", "correct", "change", "actualizar", "editar", "corregir", "cambiar"],
+    description: "Add or correct fields on an existing Cafe OS record, including complete roast control points and measurements.",
+    searchTerms: ["update", "patch", "edit", "correct", "change", "checkpoint", "control point", "duration", "temperature", "balance point", "turning point", "airflow", "gas", "rating", "taste", "actualizar", "editar", "corregir", "cambiar", "punto de control", "duracion", "temperatura", "punto de equilibrio", "tiro", "gas", "calificacion", "cata"],
   },
   {
     name: "void_roast_batch",

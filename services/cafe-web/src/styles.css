@@ -214,6 +214,8 @@ input::placeholder { color: #a3a59f; }
 .roast-timer strong { color: #9b6820; font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace; font-size: clamp(2.2rem, 5vw, 3.5rem); font-variant-numeric: tabular-nums; letter-spacing: -.05em; line-height: .95; }
 .roast-timer small { padding-bottom: 4px; color: #a38f70; font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace; font-size: .58rem; }
 .roast-timer-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
+.roast-timer-actions .button:disabled { cursor: not-allowed; }
+.timer-requirement { margin: 8px 28px 0; color: #8b6840; font-size: .7rem; font-weight: 600; }
 .checkpoint-table-wrap { overflow-x: auto; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 10px; }
 .checkpoint-table { width: 100%; border-collapse: collapse; font-size: .76rem; }
 .checkpoint-table th, .checkpoint-table td { padding: 11px 13px; border-bottom: 1px solid #ebe9e2; text-align: left; }
@@ -294,6 +296,7 @@ input::placeholder { color: #a3a59f; }
   .roast-timer { align-items: stretch; flex-direction: column; margin: 0 14px 6px; padding: 22px 18px; }
   .roast-timer-actions { justify-content: stretch; }
   .roast-timer-actions .button { flex: 1; }
+  .timer-requirement { margin-right: 18px; margin-left: 18px; }
   .checkpoint-entry { grid-template-columns: 1fr 1fr; }
   .checkpoint-entry label:nth-child(5) { grid-column: 1 / -1; }
   .checkpoint-add { grid-column: 1 / -1; }

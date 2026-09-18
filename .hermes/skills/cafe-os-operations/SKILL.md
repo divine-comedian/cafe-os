@@ -26,6 +26,11 @@ Use the Cafe OS MCP tools to read and, only with human approval, change the oper
 - Keep green input weight, roasted output weight, and packaged or sold weight distinct.
 - Keep supplier prices, invoices, margins, and customer data in authorized private operations chats. Do not repeat them into general group channels.
 - Records have no draft or confirmed status. Once approved and created, they are active. A roast requires only its green-coffee lot and may be updated progressively. Only call `void_roast_batch` after the human separately approves voiding that exact roast.
+- The live dashboard timer and unsaved roast form exist only in that operator's browser. Cafe tools cannot start, pause, resume, or reset the timer. Never claim that they did, and never treat a local timer command as authorization to create or update a roast record.
+- Durable roast timing is integer `duration_seconds`; checkpoint timing is integer `elapsed_seconds`. Convert an explicit `MM:SS` or `HH:MM:SS` value to seconds and show both the supplied display time and stored seconds in the proposal. Dashboard weights may be supplied in grams; tool weight fields are kilograms, so convert exactly and state both units.
+- Checkpoints contain elapsed time plus optional `temperature_c`, `airflow_setting` (`tiro`), `gas_setting`, and `note`. Store only an operator-described control point. A total duration, drop/end time, or statement that no curve was captured belongs only in `duration_seconds` and does not authorize inventing a checkpoint or a “not recorded” checkpoint note. A `checkpoints` patch replaces the complete array. Before adding, correcting, or removing one point, query the exact roast once, preserve every unchanged point, and propose the complete resulting array. Never infer machine-scale tiro or gas values. Sensory ratings are integers from 1 to 5. `balance_point_temperature_c` is the observed minimum temperature after charge where the falling roast curve begins to rise. Keep it distinct from charge and checkpoint temperatures, never infer it, and omit it until supplied.
+- Negative availability statements such as “not recorded,” “no curve,” “unknown,” or “not cupped yet” explain why optional fields are absent; they are not roast `notes`, `setup_notes`, `tasting_notes`, or checkpoint notes. Do not duplicate duration/drop information into notes. Omit those optional fields unless the operator supplies an actual observation or explicitly asks to preserve a note.
+- Compute roast loss in this exact order: `loss_kg = green_input_kg - roasted_output_kg`; `loss_fraction = loss_kg / green_input_kg`; `loss_percent = loss_fraction × 100`. Sanity-check decimal placement before reporting it; for example, `12 kg → 10.2 kg` is `1.8 / 12 × 100 = 15%`, not `1.5%`.
 - Deletion is permanent and dependency-guarded. Resolve the exact record, call `delete_record` with it to create the pending deletion, then ask for confirmation. If the operator asks to cascade, refuse the cascade but still prepare only the explicitly named parent deletion. Do not manually walk or delete dependencies; the API reports any conflict when the exact deletion is approved.
 
 ## Tool map
@@ -37,8 +42,8 @@ Hermes prefixes these tools with `mcp__cafe_os__`:
 - `create_provider`: add a provider.
 - `create_purchase`: add an active purchase.
 - `create_green_coffee_lot`: add a reusable lot identity; purchases link providers, lots, received weight, and cost.
-- `create_roast_batch`: add a progressive roast record; only its green-coffee lot is required.
-- `update_record`: patch any record type; send only human-confirmed changed fields.
+- `create_roast_batch`: add a progressive roast record; only its green-coffee lot is required. It may include duration, charge temperature, setup notes, complete control points, rating, and tasting notes when supplied.
+- `update_record`: patch any record type; send only human-confirmed changed fields. For roast checkpoints, send the full preserved-and-updated checkpoint array.
 - `void_roast_batch`: mark a roast void without deleting its history.
 - `delete_record`: permanently delete a dependency-free record.
 - `upload_purchase_document`: attach or replace purchase evidence from the local path Hermes reports for an inbound file.
