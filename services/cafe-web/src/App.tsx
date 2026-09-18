@@ -6,6 +6,79 @@ import { greenCoffeeInventory, roastMetrics, weightedGreenUnitCost } from "./cal
 import type { CoffeeLot, EntryKind, OperationsData, Provider, Purchase, RoastBatch, View } from "./types";
 
 const emptyData: OperationsData = { providers: [], purchases: [], lots: [], roasts: [] };
+const roastDraftStorageKey = "cafe-os:roast-draft:v1";
+type RoastCheckpoint = RoastBatch["checkpoints"][number];
+type RoastDraft = {
+  lotId: string;
+  roastDate: string;
+  greenInputGrams: string;
+  roastedOutputGrams: string;
+  chargeTemperatureC: string;
+  setupNotes: string;
+  tastingNotes: string;
+  rating: number;
+  checkpoints: RoastCheckpoint[];
+  timer: { elapsedSeconds: number; runningSince: number | null; startedAtIso: string | null };
+};
+
+function todayLocal() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function emptyRoastDraft(): RoastDraft {
+  return {
+    lotId: "",
+    roastDate: todayLocal(),
+    greenInputGrams: "",
+    roastedOutputGrams: "",
+    chargeTemperatureC: "",
+    setupNotes: "",
+    tastingNotes: "",
+    rating: 0,
+    checkpoints: [],
+    timer: { elapsedSeconds: 0, runningSince: null, startedAtIso: null },
+  };
+}
+function loadRoastDraft(storageKey: string): RoastDraft {
+  try {
+    const stored = window.localStorage.getItem(storageKey);
+    if (!stored) return emptyRoastDraft();
+    const parsed = JSON.parse(stored) as Partial<RoastDraft>;
+    const fallback = emptyRoastDraft();
+    return {
+      ...fallback,
+      ...parsed,
+      checkpoints: Array.isArray(parsed.checkpoints) ? parsed.checkpoints : [],
+      timer: { ...fallback.timer, ...(parsed.timer || {}) },
+    };
+  } catch {
+    return emptyRoastDraft();
+  }
+}
+function elapsedAt(draft: RoastDraft, now = Date.now()) {
+  return Math.max(0, Math.round(
+    draft.timer.elapsedSeconds +
+    (draft.timer.runningSince === null ? 0 : (now - draft.timer.runningSince) / 1000),
+  ));
+}
+function formatElapsed(totalSeconds: number) {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return hours > 0
+    ? [hours, minutes, remainder].map((part) => String(part).padStart(2, "0")).join(":")
+    : [minutes, remainder].map((part) => String(part).padStart(2, "0")).join(":");
+}
+function parseElapsed(value: string) {
+  const parts = value.trim().split(":");
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  const numbers = parts.map(Number);
+  if (numbers.some((part) => part < 0) || numbers.at(-1)! > 59 || (parts.length === 3 && numbers[1] > 59)) return null;
+  return parts.length === 2
+    ? numbers[0] * 60 + numbers[1]
+    : numbers[0] * 3600 + numbers[1] * 60 + numbers[2];
+}
 const nav: Array<{ view: View; label: string; icon: string }> = [
   { view: "dashboard", label: "Resumen", icon: "◫" },
   { view: "providers", label: "Proveedores", icon: "P" },
@@ -118,13 +191,21 @@ function Workspace({ supabase, session }: { supabase: SupabaseClient; session: S
     setEditingRoast(null); setNotice("Tostado actualizado e inventario recalculado."); await load();
     window.setTimeout(() => setNotice(""), 4000);
   }
+  function beginEntry(kind: EntryKind) {
+    if (kind === "roast") {
+      setView("roasts");
+      setEntry(null);
+      return;
+    }
+    setEntry(kind);
+  }
   const heading = copy[view];
   return <div className="app-shell">
     <aside className="sidebar"><Brand light /><nav>{nav.map((item) => <button key={item.view} className={"nav-item" + (view === item.view ? " nav-item--active" : "")} onClick={() => setView(item.view)}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav><div className="sidebar-profile"><span className="avatar">{(session.user.email?.[0] || "O").toUpperCase()}</span><span><strong>Operador</strong><small>{session.user.email}</small></span><button className="icon-button icon-button--light" aria-label="Cerrar sesión" onClick={() => void supabase.auth.signOut()}>↗</button></div></aside>
     <main className="workspace"><header className="mobile-header"><Brand /><button className="text-button" onClick={() => void supabase.auth.signOut()}>Salir</button></header><div className="workspace-inner">
-      <header className="page-header"><div><p className="eyebrow">{heading[0]}</p><h1>{heading[1]}</h1><p>{heading[2]}</p></div>{view !== "dashboard" && <button className="button button--primary" onClick={() => setEntry(view === "providers" ? "provider" : view === "purchases" ? "purchase" : view === "lots" ? "lot" : "roast")}>＋ Nuevo registro</button>}</header>
+      <header className="page-header"><div><p className="eyebrow">{heading[0]}</p><h1>{heading[1]}</h1><p>{heading[2]}</p></div>{view !== "dashboard" && view !== "roasts" && <button className="button button--primary" onClick={() => beginEntry(view === "providers" ? "provider" : view === "purchases" ? "purchase" : "lot")}>＋ Nuevo registro</button>}</header>
       {notice && <div className="notice">{notice}</div>}{error && <div className="error-banner">{error}<button onClick={() => void load()}>Reintentar</button></div>}
-      {loading ? <section className="panel panel--loading"><Spinner text="Cargando registros…" /></section> : view === "dashboard" ? <Dashboard data={data} setView={setView} setEntry={setEntry} /> : <Records view={view} data={data} onEditPurchase={setEditingPurchase} onEditRoast={setEditingRoast} />}
+      {loading ? <section className="panel panel--loading"><Spinner text="Cargando registros…" /></section> : view === "dashboard" ? <Dashboard data={data} setView={setView} setEntry={beginEntry} /> : view === "roasts" ? <RoastWorkspace data={data} storageKey={`${roastDraftStorageKey}:${session.user.id}`} onSave={(payload) => save("roast", payload)} onEditRoast={setEditingRoast} /> : <Records view={view} data={data} onEditPurchase={setEditingPurchase} onEditRoast={setEditingRoast} />}
     </div><nav className="mobile-nav">{nav.map((item) => <button key={item.view} className={view === item.view ? "mobile-nav__active" : ""} onClick={() => setView(item.view)}><span>{item.icon}</span>{item.label}</button>)}</nav></main>
     {entry && <EntryModal kind={entry} data={data} onClose={() => setEntry(null)} onSave={save} />}
     {editingPurchase && <EditPurchaseModal purchase={editingPurchase} data={data} onClose={() => setEditingPurchase(null)} onSave={savePurchaseEdit} />}
@@ -146,6 +227,228 @@ function Dashboard({ data, setView, setEntry }: { data: OperationsData; setView:
 }
 function Stat({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <article className={"stat-card stat-card--" + tone}><span className="stat-card__dot" /><p>{label}</p><strong>{value}</strong><small>{detail}</small></article>; }
 function Flow({ n, label }: { n: number; label: string }) { return <div className="flow-item"><span>{label.slice(0,1)}</span><strong>{label}</strong><b>{n}</b></div>; }
+
+function RoastWorkspace({ data, storageKey, onSave, onEditRoast }: { data: OperationsData; storageKey: string; onSave: (payload: Record<string, unknown>) => Promise<void>; onEditRoast: (roast: RoastBatch) => void }) {
+  const [tab, setTab] = useState<"new" | "history" | "panel">("new");
+  return <section className="roast-workspace">
+    <nav className="roast-tabs" aria-label="Vistas de tostado">
+      <button className={tab === "new" ? "roast-tab--active" : ""} onClick={() => setTab("new")}>Nuevo tostado</button>
+      <button className={tab === "history" ? "roast-tab--active" : ""} onClick={() => setTab("history")}>Historial</button>
+      <button className={tab === "panel" ? "roast-tab--active" : ""} onClick={() => setTab("panel")}>Panel</button>
+    </nav>
+    {tab === "new" ? <NewRoastForm data={data} storageKey={storageKey} onSave={async (payload) => { await onSave(payload); setTab("history"); }} /> : tab === "history" ? <Records view="roasts" data={data} onEditPurchase={() => undefined} onEditRoast={onEditRoast} /> : <RoastPanel data={data} />}
+  </section>;
+}
+
+function RoastPanel({ data }: { data: OperationsData }) {
+  const active = data.roasts.filter((roast) => !roast.voided_at);
+  const rated = active.filter((roast) => roast.sensory_rating !== null);
+  const withCheckpoints = active.filter((roast) => roast.checkpoints.length > 0);
+  const averageRating = rated.length ? rated.reduce((sum, roast) => sum + Number(roast.sensory_rating), 0) / rated.length : null;
+  return <section className="roast-panel-grid">
+    <Stat label="Tostados registrados" value={String(active.length)} detail={`${withCheckpoints.length} con puntos de control`} tone="ink" />
+    <Stat label="Calificación promedio" value={averageRating === null ? "—" : `${averageRating.toFixed(1)} / 5`} detail={`${rated.length} tostados calificados`} tone="gold" />
+    <article className="panel roast-panel-note"><p className="eyebrow">Siguiente iteración</p><h2>Curvas por tostado</h2><p>Los puntos de temperatura, tiro y gas ya quedan estructurados para construir las curvas comparativas del panel.</p></article>
+  </section>;
+}
+
+function NewRoastForm({ data, storageKey, onSave }: { data: OperationsData; storageKey: string; onSave: (payload: Record<string, unknown>) => Promise<void> }) {
+  const [draft, setDraft] = useState<RoastDraft>(() => loadRoastDraft(storageKey));
+  const [clockNow, setClockNow] = useState(Date.now());
+  const [checkpoint, setCheckpoint] = useState({ time: "", temperature: "", airflow: "", gas: "", note: "" });
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState<Record<string, unknown> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const elapsedSeconds = elapsedAt(draft, clockNow);
+  const inventory = draft.lotId ? greenCoffeeInventory(draft.lotId, data.purchases, data.roasts) : null;
+  const selectedLot = data.lots.find((lot) => lot.id === draft.lotId);
+
+  useEffect(() => {
+    window.localStorage.setItem(storageKey, JSON.stringify(draft));
+  }, [draft, storageKey]);
+  useEffect(() => {
+    if (draft.timer.runningSince === null) return;
+    const interval = window.setInterval(() => setClockNow(Date.now()), 500);
+    return () => window.clearInterval(interval);
+  }, [draft.timer.runningSince]);
+
+  function update<K extends keyof RoastDraft>(key: K, value: RoastDraft[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+  function startTimer() {
+    const now = Date.now();
+    setClockNow(now);
+    setDraft((current) => current.timer.runningSince !== null ? current : {
+      ...current,
+      timer: {
+        ...current.timer,
+        runningSince: now,
+        startedAtIso: current.timer.startedAtIso || new Date(now).toISOString(),
+      },
+    });
+  }
+  function pauseTimer() {
+    const now = Date.now();
+    setClockNow(now);
+    setDraft((current) => ({
+      ...current,
+      timer: { ...current.timer, elapsedSeconds: elapsedAt(current, now), runningSince: null },
+    }));
+  }
+  function resetTimer() {
+    setClockNow(Date.now());
+    setDraft((current) => ({
+      ...current,
+      timer: { elapsedSeconds: 0, runningSince: null, startedAtIso: null },
+    }));
+  }
+  function addCheckpoint() {
+    setError("");
+    const checkpointSeconds = checkpoint.time.trim() ? parseElapsed(checkpoint.time) : elapsedSeconds;
+    if (checkpointSeconds === null) {
+      setError("El tiempo debe escribirse como MM:SS o HH:MM:SS.");
+      return;
+    }
+    if (![checkpoint.temperature, checkpoint.airflow, checkpoint.gas, checkpoint.note].some((value) => value.trim())) {
+      setError("Agrega al menos temperatura, tiro, gas o una nota para el punto de control.");
+      return;
+    }
+    const next: RoastCheckpoint = {
+      elapsed_seconds: checkpointSeconds,
+      ...(checkpoint.temperature ? { temperature_c: checkpoint.temperature } : {}),
+      ...(checkpoint.airflow ? { airflow_setting: checkpoint.airflow } : {}),
+      ...(checkpoint.gas ? { gas_setting: checkpoint.gas } : {}),
+      ...(checkpoint.note.trim() ? { note: checkpoint.note.trim() } : {}),
+    };
+    setDraft((current) => ({
+      ...current,
+      checkpoints: [...current.checkpoints, next].sort((left, right) => left.elapsed_seconds - right.elapsed_seconds),
+    }));
+    setCheckpoint({ time: "", temperature: "", airflow: "", gas: "", note: "" });
+  }
+  function clearForm() {
+    const cleared = emptyRoastDraft();
+    window.localStorage.removeItem(storageKey);
+    setDraft(cleared);
+    setCheckpoint({ time: "", temperature: "", airflow: "", gas: "", note: "" });
+    setError("");
+    setClockNow(Date.now());
+  }
+  function prepareSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (!draft.lotId || !selectedLot) {
+      setError("Selecciona el lote de café verde.");
+      return;
+    }
+    const saveNow = Date.now();
+    const savedElapsedSeconds = elapsedAt(draft, saveNow);
+    const greenInputKg = draft.greenInputGrams ? Number(draft.greenInputGrams) / 1000 : null;
+    const roastedOutputKg = draft.roastedOutputGrams ? Number(draft.roastedOutputGrams) / 1000 : null;
+    if (greenInputKg !== null && inventory && greenInputKg > inventory.availableKg + 1e-9) {
+      setError(`Solo hay ${weight(inventory.availableKg)} disponibles para este lote.`);
+      return;
+    }
+    if (greenInputKg !== null && roastedOutputKg !== null && roastedOutputKg > greenInputKg) {
+      setError("El peso final no puede superar la carga verde.");
+      return;
+    }
+    if (draft.timer.runningSince !== null) {
+      setClockNow(saveNow);
+      setDraft((current) => ({
+        ...current,
+        timer: { ...current.timer, elapsedSeconds: elapsedAt(current, saveNow), runningSince: null },
+      }));
+    }
+    setPending({
+      green_coffee_lot_id: draft.lotId,
+      ...(draft.roastDate ? { roast_date: draft.roastDate } : {}),
+      ...(draft.timer.startedAtIso ? { roasted_at: draft.timer.startedAtIso } : {}),
+      ...(greenInputKg !== null ? { green_input_kg: greenInputKg } : {}),
+      ...(roastedOutputKg !== null ? { roasted_output_kg: roastedOutputKg } : {}),
+      ...(savedElapsedSeconds > 0 ? { duration_seconds: savedElapsedSeconds } : {}),
+      ...(draft.chargeTemperatureC ? { charge_temperature_c: draft.chargeTemperatureC } : {}),
+      ...(draft.setupNotes.trim() ? { setup_notes: draft.setupNotes.trim() } : {}),
+      checkpoints: draft.checkpoints,
+      ...(draft.rating > 0 ? { sensory_rating: draft.rating } : {}),
+      ...(draft.tastingNotes.trim() ? { tasting_notes: draft.tastingNotes.trim() } : {}),
+    });
+  }
+  async function confirmSave() {
+    if (!pending) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSave(pending);
+      clearForm();
+      setPending(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo guardar el tostado.");
+      setBusy(false);
+    }
+  }
+
+  if (!data.lots.length) return <section className="panel modal-empty"><b>!</b><h3>Primero registra café verde</h3><p>Necesitas al menos un lote con inventario antes de iniciar un tostado.</p></section>;
+
+  return <>
+    <form className="panel roast-log" onSubmit={prepareSave}>
+      <section className="roast-log-section">
+        <div className="roast-section-title"><div><p className="eyebrow">Preparación</p><h2>Configuración del tostado</h2></div><small>El borrador se conserva en este dispositivo.</small></div>
+        <div className="roast-config-grid">
+          <Field label="Grano / origen" full><select required value={draft.lotId} onChange={(event) => update("lotId", event.target.value)} autoFocus><option value="" disabled>Selecciona un lote</option>{data.lots.map((lot) => <option key={lot.id} value={lot.id}>{[lot.name, lot.variety, lot.origin].filter(Boolean).join(" · ")}</option>)}</select></Field>
+          <Field label="Fecha"><input type="date" value={draft.roastDate} onChange={(event) => update("roastDate", event.target.value)} /></Field>
+          <Field label="Carga" unit="g" optional><input type="number" min="1" step="1" value={draft.greenInputGrams} onChange={(event) => update("greenInputGrams", event.target.value)} placeholder="120" /></Field>
+          <Field label="Temp. de carga" unit="°C" optional><input type="number" min="0" step="0.1" value={draft.chargeTemperatureC} onChange={(event) => update("chargeTemperatureC", event.target.value)} placeholder="180" /></Field>
+          <Field label="Punto de equilibrio" optional><input disabled placeholder="Pendiente de confirmar" title="Falta confirmar con el cliente qué representa y en qué unidad se captura." /></Field>
+          <Field label="Peso final" unit="g" optional><input type="number" min="1" step="1" value={draft.roastedOutputGrams} onChange={(event) => update("roastedOutputGrams", event.target.value)} placeholder="Opcional" /></Field>
+          <Field label="Notas previas" optional full><input value={draft.setupNotes} onChange={(event) => update("setupNotes", event.target.value)} placeholder="Algo que valga la pena recordar antes del tostado" /></Field>
+        </div>
+        {inventory && <p className="inventory-note"><strong>{weight(inventory.availableKg)}</strong> disponibles para {selectedLot?.name}.</p>}
+      </section>
+
+      <section className="roast-timer" aria-live="polite">
+        <div><span>Tiempo transcurrido</span><strong>{formatElapsed(elapsedSeconds)}</strong><small>{elapsedSeconds >= 3600 ? "HH:MM:SS" : "MM:SS"}</small></div>
+        <div className="roast-timer-actions">
+          <button type="button" className="button button--primary" onClick={startTimer} disabled={draft.timer.runningSince !== null}>{draft.timer.runningSince !== null ? "Corriendo…" : elapsedSeconds > 0 ? "Reanudar" : "Iniciar"}</button>
+          <button type="button" className="button" onClick={pauseTimer} disabled={draft.timer.runningSince === null}>Pausar</button>
+          <button type="button" className="button" onClick={resetTimer}>Reiniciar</button>
+        </div>
+      </section>
+
+      <section className="roast-log-section">
+        <div className="roast-section-title"><div><p className="eyebrow">Curva manual</p><h2>Puntos de control</h2></div><small>El tiro y el gas usan la escala de tu máquina.</small></div>
+        {draft.checkpoints.length > 0 && <div className="checkpoint-table-wrap"><table className="checkpoint-table"><thead><tr><th>Tiempo</th><th>Temp. °C</th><th>Tiro</th><th>Gas</th><th>Nota</th><th /></tr></thead><tbody>{draft.checkpoints.map((point, index) => <tr key={`${point.elapsed_seconds}-${index}`}><td>{formatElapsed(point.elapsed_seconds)}</td><td>{point.temperature_c ?? "—"}</td><td>{point.airflow_setting ?? "—"}</td><td>{point.gas_setting ?? "—"}</td><td>{point.note || "—"}</td><td><button type="button" className="checkpoint-remove" aria-label={`Quitar punto ${index + 1}`} onClick={() => setDraft((current) => ({ ...current, checkpoints: current.checkpoints.filter((_item, itemIndex) => itemIndex !== index) }))}>×</button></td></tr>)}</tbody></table></div>}
+        <div className="checkpoint-entry" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCheckpoint(); } }}>
+          <Field label="Tiempo"><input value={checkpoint.time} onChange={(event) => setCheckpoint((current) => ({ ...current, time: event.target.value }))} placeholder={formatElapsed(elapsedSeconds)} inputMode="numeric" /></Field>
+          <Field label="Temp." unit="°C"><input type="number" step="0.1" value={checkpoint.temperature} onChange={(event) => setCheckpoint((current) => ({ ...current, temperature: event.target.value }))} /></Field>
+          <Field label="Tiro"><input type="number" step="0.5" value={checkpoint.airflow} onChange={(event) => setCheckpoint((current) => ({ ...current, airflow: event.target.value }))} /></Field>
+          <Field label="Gas"><input type="number" step="0.5" value={checkpoint.gas} onChange={(event) => setCheckpoint((current) => ({ ...current, gas: event.target.value }))} /></Field>
+          <Field label="Nota"><input value={checkpoint.note} onChange={(event) => setCheckpoint((current) => ({ ...current, note: event.target.value }))} placeholder="Ej. primer crack" /></Field>
+          <button type="button" className="button checkpoint-add" onClick={addCheckpoint}>＋ Agregar</button>
+        </div>
+      </section>
+
+      <section className="roast-log-section roast-cupping">
+        <div className="roast-section-title"><div><p className="eyebrow">Después de la taza</p><h2>Evaluación</h2></div><small>Complétalo después de catarlo o déjalo para después.</small></div>
+        <div className="roast-cupping-grid">
+          <div><span className="field-label">Calificación <small>Opcional</small></span><div className="star-picker" aria-label="Calificación de una a cinco estrellas">{[1,2,3,4,5].map((rating) => <button key={rating} type="button" className={rating <= draft.rating ? "star-picker--selected" : ""} onClick={() => update("rating", draft.rating === rating ? 0 : rating)} aria-label={`${rating} estrellas`}>★</button>)}</div></div>
+          <Field label="Notas de cata" optional><input value={draft.tastingNotes} onChange={(event) => update("tastingNotes", event.target.value)} placeholder="Brillante, achocolatado, subdesarrollado…" /></Field>
+        </div>
+      </section>
+      {error && <div className="form-error roast-form-error">{error}</div>}
+      <footer className="roast-actions"><button type="button" className="button button--ghost" onClick={clearForm}>Limpiar formulario</button><button className="button button--primary">Guardar tostado</button></footer>
+    </form>
+    {pending && <Modal onClose={() => !busy && setPending(null)} title="Confirmar tostado" eyebrow="Revisa antes de guardar"><div className="proposal"><div className="proposal-list">
+      <div><span>Lote</span><strong>{selectedLot?.name || "—"}</strong></div>
+      <div><span>Fecha</span><strong>{showDate(draft.roastDate)}</strong></div>
+      <div><span>Carga verde</span><strong>{draft.greenInputGrams ? `${draft.greenInputGrams} g` : "Pendiente"}</strong></div>
+      <div><span>Peso final</span><strong>{draft.roastedOutputGrams ? `${draft.roastedOutputGrams} g` : "Pendiente"}</strong></div>
+      <div><span>Duración</span><strong>{pending.duration_seconds ? formatElapsed(Number(pending.duration_seconds)) : "Pendiente"}</strong></div>
+      <div><span>Puntos de control</span><strong>{draft.checkpoints.length}</strong></div>
+      <div><span>Calificación</span><strong>{draft.rating > 0 ? `${draft.rating} / 5` : "Pendiente"}</strong></div>
+    </div>{error && <div className="form-error">{error}</div>}<footer className="modal-actions"><button className="button button--ghost" onClick={() => setPending(null)} disabled={busy}>← Corregir</button><button className="button button--primary" onClick={() => void confirmSave()} disabled={busy}>{busy ? "Guardando…" : "Confirmar y guardar"}</button></footer></div></Modal>}
+  </>;
+}
 
 function Records({ view, data, onEditPurchase, onEditRoast }: { view: Exclude<View, "dashboard">; data: OperationsData; onEditPurchase: (purchase: Purchase) => void; onEditRoast: (roast: RoastBatch) => void }) {
   const [search, setSearch] = useState("");
