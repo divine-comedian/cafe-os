@@ -50,7 +50,7 @@ _COMPLETION_RESERVE = _bounded_env_int("CAFE_HARNESS_COMPLETION_RESERVE", 1_024,
 _FULL_CATALOG_HOP_CAP = _bounded_env_int("CAFE_FULL_CATALOG_HOP_CAP", 20, 2, 20)
 _PROPOSAL_REQUIRED = {
     "create_provider": ["name"],
-    "create_purchase": ["provider_id", "green_coffee_lot_id", "received_weight_kg"],
+    "create_purchase": ["received_weight_kg"],
     "create_green_coffee_lot": ["name"],
     "create_roast_batch": ["green_coffee_lot_id"],
     "update_record": ["resource", "id", "fields"],
@@ -67,6 +67,7 @@ _MAX_APPROVED_CHAIN_WRITES = 8
 _MAX_STATES = 256
 _LOCK = threading.RLock()
 _STATES: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+_PROVIDER_CATALOGS: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()
 
 
 def _event(event: str, **fields: Any) -> None:
@@ -133,6 +134,26 @@ def _put_state(session_id: str, turn_id: str, value: dict[str, Any]) -> None:
         _STATES.move_to_end(key)
         while len(_STATES) > _MAX_STATES:
             _STATES.popitem(last=False)
+
+
+def _provider_catalog(session_id: str) -> tuple[bool, list[dict[str, Any]]]:
+    with _LOCK:
+        if session_id not in _PROVIDER_CATALOGS:
+            return False, []
+        return True, list(_PROVIDER_CATALOGS[session_id])
+
+
+def _set_provider_catalog(session_id: str, catalog: list[dict[str, Any]]) -> None:
+    with _LOCK:
+        _PROVIDER_CATALOGS[session_id] = list(catalog)
+        _PROVIDER_CATALOGS.move_to_end(session_id)
+        while len(_PROVIDER_CATALOGS) > _MAX_STATES:
+            _PROVIDER_CATALOGS.popitem(last=False)
+
+
+def _invalidate_provider_catalog(session_id: str) -> None:
+    with _LOCK:
+        _PROVIDER_CATALOGS.pop(session_id, None)
 
 
 def _router_cli() -> str:
@@ -267,13 +288,21 @@ def _activated_from_messages(messages: Any) -> set[str]:
     return activated
 
 
-def _pending_from_messages(messages: Any) -> tuple[str, str] | None:
+def _pending_from_messages(messages: Any) -> list[dict[str, Any]]:
     if not isinstance(messages, list):
-        return None
+        return []
     if not _is_explicit_approval(messages):
-        return None
-    closed_tools: set[str] = set()
-    for message in reversed(messages):
+        return []
+    user_indexes = [
+        index for index, message in enumerate(messages)
+        if isinstance(message, dict) and message.get("role") == "user"
+    ]
+    if not user_indexes:
+        return []
+    approval_index = user_indexes[-1]
+    proposal_start = user_indexes[-2] + 1 if len(user_indexes) > 1 else 0
+    pending_operations: list[dict[str, Any]] = []
+    for message in messages[proposal_start:approval_index]:
         if not isinstance(message, dict) or message.get("role") != "tool":
             continue
         message_tool = _short_name(str(message.get("tool_name") or message.get("name") or ""))
@@ -281,20 +310,107 @@ def _pending_from_messages(messages: Any) -> tuple[str, str] | None:
         if not isinstance(value, dict):
             continue
         structured = value.get("structuredContent") if isinstance(value.get("structuredContent"), dict) else value
-        if isinstance(structured.get("operation_receipt"), dict):
-            if message_tool:
-                closed_tools.add(message_tool)
-            continue
-        if structured.get("ok") is False or "error" in structured or "api_error" in structured:
-            if message_tool:
-                closed_tools.add(message_tool)
+        if (isinstance(structured.get("operation_receipt"), dict)
+                or structured.get("ok") is False
+                or "error" in structured
+                or "api_error" in structured):
             continue
         pending = structured.get("pending_confirmation") if isinstance(structured, dict) else None
         if (isinstance(pending, dict) and isinstance(pending.get("tool_name"), str)
-                and isinstance(pending.get("id"), str)
-                and pending["tool_name"] not in closed_tools):
-            return pending["tool_name"], pending["id"]
-    return None
+                and isinstance(pending.get("id"), str)):
+            pending_operations.append({
+                "tool_name": pending["tool_name"],
+                "id": pending["id"],
+                "canonical_arguments": (
+                    pending.get("canonical_arguments")
+                    if isinstance(pending.get("canonical_arguments"), dict)
+                    else {}
+                ),
+                "message_tool": message_tool,
+            })
+    return pending_operations
+
+
+def _batch_wave(pending_operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Cafe OS does not opt into Hermes' parallel MCP execution, so calls in one
+    # assistant batch run sequentially. Keep the complete approved set in that
+    # batch: prerequisite creates finish before a purchase resolves their names.
+    return list(pending_operations)
+
+
+def _pending_tool_ids(operations: list[dict[str, Any]]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for operation in operations:
+        tool_name = operation.get("tool_name")
+        pending_id = operation.get("id")
+        if isinstance(tool_name, str) and isinstance(pending_id, str):
+            result.setdefault(tool_name, []).append(pending_id)
+    return result
+
+
+def _provider_catalog_from_messages(messages: Any) -> tuple[bool, list[dict[str, Any]]]:
+    if not isinstance(messages, list):
+        return False, []
+    calls: dict[str, tuple[str, dict[str, Any]]] = {}
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        for call in message.get("tool_calls") or []:
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function")
+            if not isinstance(function, dict):
+                continue
+            arguments = function.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except (TypeError, ValueError):
+                    arguments = {}
+            call_id = call.get("id")
+            if isinstance(call_id, str):
+                calls[call_id] = (
+                    _short_name(str(function.get("name") or "")),
+                    arguments if isinstance(arguments, dict) else {},
+                )
+
+    available = False
+    catalog: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "tool":
+            continue
+        call_name, call_args = calls.get(str(message.get("tool_call_id") or ""), ("", {}))
+        message_name = _short_name(str(message.get("tool_name") or message.get("name") or call_name))
+        value = _json_content(message.get("content"))
+        if not isinstance(value, dict):
+            continue
+        structured = value.get("structuredContent") if isinstance(value.get("structuredContent"), dict) else value
+        receipt = structured.get("operation_receipt") if isinstance(structured, dict) else None
+        if isinstance(receipt, dict) and receipt.get("resource") == "provider":
+            available = False
+            catalog = []
+            continue
+        if message_name != "query_records":
+            continue
+        data = structured.get("data") if isinstance(structured, dict) else None
+        rows = data if isinstance(data, list) else []
+        unfiltered_provider_query = (
+            call_name == "query_records"
+            and call_args.get("resource") == "provider"
+            and not call_args.get("id")
+            and not call_args.get("name")
+        )
+        provider_shaped_rows = bool(rows) and all(
+            isinstance(row, dict) and "region" in row and "origin" not in row
+            for row in rows
+        )
+        if unfiltered_provider_query or provider_shaped_rows:
+            available = True
+            catalog = [
+                {key: row.get(key) for key in ("id", "name", "region") if row.get(key) is not None}
+                for row in rows if isinstance(row, dict)
+            ]
+    return available, catalog
 
 
 def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = "",
@@ -310,18 +426,32 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     }
     state = _state(session_id, turn_id)
     if state is None:
-        pending_context = _pending_from_messages(request.get("messages"))
-        pending_tool = pending_context[0] if pending_context else None
-        full_catalog = not pending_context and _visibility_mode() == "full"
-        if pending_tool in authorized_tools:
+        pending_operations = _pending_from_messages(request.get("messages"))
+        pending_batch = (
+            len(pending_operations) > 1
+            and all(operation.get("tool_name") in _CHAINABLE_WRITES for operation in pending_operations)
+        )
+        active_pending = _batch_wave(pending_operations) if pending_batch else pending_operations[:1]
+        all_pending_tools = {
+            str(operation["tool_name"])
+            for operation in pending_operations
+            if operation.get("tool_name") in authorized_tools
+        }
+        pending_tools = {
+            str(operation["tool_name"])
+            for operation in active_pending
+            if operation.get("tool_name") in authorized_tools
+        }
+        full_catalog = not pending_operations and _visibility_mode() == "full"
+        if pending_tools:
             routed = {
                 "ok": True,
-                "intent": "confirm_pending_operation",
-                "toolIds": [pending_tool],
+                "intent": "confirm_pending_batch" if pending_batch else "confirm_pending_operation",
+                "toolIds": sorted(pending_tools),
                 "confidence": 1,
                 "model": "pending-confirmation-bypass",
                 "durationMs": 0,
-                "fallbackReason": "pending_confirmation_bypass",
+                "fallbackReason": "pending_batch_bypass" if pending_batch else "pending_confirmation_bypass",
             }
         elif full_catalog:
             routed = {
@@ -339,7 +469,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             value for value in routed.get("toolIds", [])
             if isinstance(value, str) and value in authorized_tools and value != _DISCOVERY
         }
-        if not full_catalog and "create_provider" in selected and "query_records" in authorized_tools:
+        if (not full_catalog and not pending_operations
+                and "create_provider" in selected and "query_records" in authorized_tools):
             selected.add("query_records")
         missing_required_fields = {
             value for value in routed.get("missingRequiredFields", [])
@@ -365,6 +496,13 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             short: ("read" if short in {_DISCOVERY, "query_records", "list_entries"} else "write")
             for short in authorized_tools
         }
+        catalog_cached, cached_provider_catalog = _provider_catalog(session_id)
+        if not catalog_cached:
+            catalog_cached, cached_provider_catalog = _provider_catalog_from_messages(
+                request.get("messages")
+            )
+            if catalog_cached:
+                _set_provider_catalog(session_id, cached_provider_catalog)
         state = {
             "selected": selected,
             "fallback": fallback,
@@ -374,9 +512,24 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "write_succeeded": False,
             "completion_tokens": 0,
             "kinds": kinds,
-            "pending_ids": {pending_context[1]} if pending_context else set(),
-            "pending_bypass": bool(pending_context),
-            "approval_chain": bool(pending_tool in _CHAINABLE_WRITES),
+            "pending_ids": {
+                str(operation["id"]) for operation in active_pending
+                if isinstance(operation.get("id"), str)
+            },
+            "pending_ids_by_tool": _pending_tool_ids(active_pending),
+            "pending_bypass": bool(active_pending),
+            "approval_chain": bool(active_pending) and all(
+                operation.get("tool_name") in _CHAINABLE_WRITES for operation in pending_operations
+            ),
+            "batch_approval": pending_batch,
+            "batch_pending": list(pending_operations),
+            "batch_active_ids": {
+                str(operation["id"]) for operation in active_pending
+                if isinstance(operation.get("id"), str)
+            },
+            "batch_receipts": [],
+            "batch_completed": False,
+            "chain_pending_confirmation": False,
             "approval_writes": 0,
             "full_catalog": full_catalog,
             "discovery_used": False,
@@ -391,8 +544,8 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             "duplicate_calls": 0,
             "post_write_reads": 0,
             "resolved_ids": {},
-            "provider_catalog_loaded": False,
-            "provider_catalog": [],
+            "provider_catalog_loaded": catalog_cached,
+            "provider_catalog": cached_provider_catalog,
             "missing_required_fields": missing_required_fields,
             "blocking_missing_fields": requires_user_input,
             "lookup_resource": lookup_resource,
@@ -401,8 +554,15 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
                              else (4 if len(lookup_resources) > 1 else 3)),
         }
         _put_state(session_id, turn_id, state)
-        if pending_context:
-            _event("confirmation_resume", session_id=session_id, turn_id=turn_id, tool=pending_tool)
+        if active_pending:
+            _event(
+                "confirmation_resume",
+                session_id=session_id,
+                turn_id=turn_id,
+                tool=("batch" if pending_batch else next(iter(pending_tools), "unknown")),
+                tools=sorted(pending_tools),
+                operation_count=len(pending_operations),
+            )
         _event(
             "router",
             request_id=api_request_id,
@@ -410,7 +570,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
             turn_id=turn_id,
             model=routed.get("model"),
             ok=bool(routed.get("ok")),
-            selected=sorted(selected),
+            selected=sorted(all_pending_tools if pending_batch else selected),
             confidence=routed.get("confidence", 0),
             duration_ms=routed.get("durationMs", 0),
             input_tokens=(routed.get("usage") or {}).get("inputTokens", 0),
@@ -487,18 +647,26 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
         filtered = constrained
     if state.get("pending_bypass"):
         confirmation_only = []
-        pending_id = next(iter(state.get("pending_ids", set())), "")
         for tool in filtered:
             copied = dict(tool)
             function = dict(copied.get("function") or {})
+            short = _short_name(_tool_name(tool))
+            tool_pending_ids = list(state.get("pending_ids_by_tool", {}).get(short, []))
+            if not tool_pending_ids:
+                continue
             function["description"] = (
                 "Execute the exact stored pending operation. Call with confirmation_id only; "
                 "no other argument is accepted."
             )
+            confirmation_schema = (
+                {"type": "string", "const": tool_pending_ids[0]}
+                if len(tool_pending_ids) == 1
+                else {"type": "string", "enum": tool_pending_ids}
+            )
             function["parameters"] = {
                 "type": "object",
                 "additionalProperties": False,
-                "properties": {"confirmation_id": {"type": "string", "const": pending_id}},
+                "properties": {"confirmation_id": confirmation_schema},
                 "required": ["confirmation_id"],
             }
             copied["function"] = function
@@ -532,6 +700,11 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
     updated["tools"] = filtered
     messages = list(updated.get("messages") or [])
     if not visible:
+        batch_completion = (
+            " The approved batch is complete. Combine all authoritative operation receipts into one concise "
+            "user-facing result; name each created or updated record and do not expose internal IDs."
+            if state.get("batch_completed") else ""
+        )
         messages.append({
             "role": "system",
             "content": (
@@ -539,7 +712,7 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
                 "without any tool call. Match the language of the latest user message. If a proposal "
                 "is pending, show its exact fields with units on every operational number (for example, "
                 "12 kg and 705 s) and ask for confirmation; if execution failed, report only the "
-                "actionable error."
+                "actionable error." + batch_completion
             ),
         })
     elif state.get("phase_instruction"):
@@ -588,8 +761,14 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
                 "voice-vocabulary removal return pending_confirmation and require later approval; "
                 "voice-vocabulary upsert_entry executes immediately and must not ask for confirmation. "
                 "When one request needs multiple related non-destructive writes, the confirmation prompt must "
-                "list every planned write and all known fields. Tell the operator that one confirmation covers "
-                "that complete listed workflow. Deletes and voiding a roast are excluded and must "
+                "be backed by one assistant tool-call batch containing every separate proposal tool. For a "
+                "new provider + new lot + purchase, batch create_provider, create_green_coffee_lot, and "
+                "create_purchase together; the purchase may reference the exact proposed names with "
+                "provider_name and green_coffee_lot_name until their IDs exist. Its remaining fields are "
+                "received_weight_kg, purchased_at, total_amount, currency, payment_method, and notes. Never "
+                "invent wrapper fields such as purchases, supplier_name, quantity, unit, or amount. Do not send only the first "
+                "proposal. After all proposal results return, list every planned action and all known fields, "
+                "and say that one confirmation covers the complete batch. Deletes and voiding a roast are excluded and must "
                 "always be confirmed separately."
             ),
         })
@@ -612,14 +791,33 @@ def _llm_request(*, request: Any = None, session_id: str = "", turn_id: str = ""
                 "pending_confirmation result is the only proposal you may present."
             ),
         })
-    if state.get("approval_chain") and not state.get("pending_bypass"):
+    if state.get("chain_pending_confirmation") and state.get("pending_bypass"):
+        messages.append({
+            "role": "system",
+            "content": (
+                "This exact follow-on proposal is already covered by the operator's single workflow approval. "
+                "Call the only active tool now with its confirmation_id. Do not ask the operator again and do "
+                "not describe the proposal as awaiting confirmation."
+            ),
+        })
+    elif state.get("batch_approval") and state.get("pending_bypass"):
+        messages.append({
+            "role": "system",
+            "content": (
+                "The operator approved the complete stored batch. Call every currently active confirmation "
+                "tool together in one assistant tool-call batch. These are prerequisite operations selected "
+                "for this wave. Do not ask another question and do not respond to the user until all remaining "
+                "approved operations have executed and their combined receipts are available."
+            ),
+        })
+    elif state.get("approval_chain") and not state.get("pending_bypass"):
         messages.append({
             "role": "system",
             "content": (
                 "The operator's latest explicit confirmation authorizes the complete non-destructive workflow "
                 "that was already listed in the preceding confirmation prompt. Continue now until every listed "
                 "create, update, or evidence-upload action is complete, without asking again. Use only facts and "
-                "fields already present in the conversation. Do not extend this approval to a delete, a roast "
+                "fields already present in the conversation. Do not extend this approval to a delete, a "
                 "roast void, an unlisted action, or a new user request. If no listed action "
                 "remains, stop and return the concise final result."
             ),
@@ -778,7 +976,14 @@ def _pre_tool_call(*, tool_name: str = "", args: Any = None, session_id: str = "
         proposal_with_stray_confirmation = not state.get("pending_bypass") and len(args) > 1
         resumable_pending = state.get("pending_bypass") and len(state.get("pending_ids", set())) == 1
         if not proposal_with_stray_confirmation and not resumable_pending:
-            return {"action": "block", "message": "POLICY_CONFIRMATION_CONTEXT: this proposal is not bound to the active session."}
+            return {
+                "action": "block",
+                "message": (
+                    "POLICY_CONFIRMATION_CONTEXT: no pending proposal for this tool is awaiting approval in "
+                    "the current conversation. Submit its complete business fields to prepare a proposal; do "
+                    "not reuse a confirmation ID from another record."
+                ),
+            }
     if signature in state["successful"]:
         state["duplicate_calls"] = int(state.get("duplicate_calls", 0)) + 1
         return {"action": "block", "message": "POLICY_DUPLICATE_CALL: this exact successful call already ran in the current task."}
@@ -811,10 +1016,88 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
             state["discovery_used"] = True
         if state["kinds"].get(short) == "write":
             if "pending_confirmation" in text:
+                pending = structured_result.get("pending_confirmation")
+                chainable_follow_on = (
+                    state.get("approval_chain")
+                    and not state.get("pending_bypass")
+                    and short in _CHAINABLE_WRITES
+                    and isinstance(pending, dict)
+                    and isinstance(pending.get("id"), str)
+                    and pending.get("tool_name") == short
+                )
                 state["pending_prepared"] = True
-                state["stop_tools"] = True
-                state["terminal_reason"] = "needs_confirmation"
-                _event("confirmation_suspend", session_id=session_id, turn_id=turn_id, tool=short)
+                if chainable_follow_on:
+                    state["pending_ids"] = {pending["id"]}
+                    state["pending_bypass"] = True
+                    state["chain_pending_confirmation"] = True
+                    state["selected"] = {short}
+                    state["full_catalog"] = False
+                    state["stop_tools"] = False
+                    state["terminal_reason"] = None
+                    state["phase_instruction"] = None
+                    _event("approval_chain_proposal", session_id=session_id, turn_id=turn_id, tool=short)
+                else:
+                    state["stop_tools"] = True
+                    state["terminal_reason"] = "needs_confirmation"
+                    _event("confirmation_suspend", session_id=session_id, turn_id=turn_id, tool=short)
+            elif (state.get("batch_approval") and short in _CHAINABLE_WRITES
+                  and isinstance(structured_result.get("operation_receipt"), dict)):
+                receipt = structured_result["operation_receipt"]
+                active_ids = set(state.get("batch_active_ids", set()))
+                matching = next((
+                    operation for operation in state.get("batch_pending", [])
+                    if operation.get("tool_name") == short and operation.get("id") in active_ids
+                ), None)
+                if matching is not None:
+                    completed_id = str(matching["id"])
+                    state["batch_pending"] = [
+                        operation for operation in state.get("batch_pending", [])
+                        if operation.get("id") != completed_id
+                    ]
+                    active_ids.discard(completed_id)
+                    state["batch_receipts"].append(receipt)
+                    resource = str(receipt.get("resource") or "")
+                    record_id = receipt.get("id")
+                    if resource and isinstance(record_id, str):
+                        state.setdefault("resolved_ids", {}).setdefault(resource, set()).add(record_id)
+                    if resource == "provider":
+                        _invalidate_provider_catalog(session_id)
+                    state["approval_writes"] = int(state.get("approval_writes", 0)) + 1
+                if active_ids:
+                    next_wave = [
+                        operation for operation in state.get("batch_pending", [])
+                        if operation.get("id") in active_ids
+                    ]
+                else:
+                    next_wave = _batch_wave(list(state.get("batch_pending", [])))
+                    active_ids = {
+                        str(operation["id"]) for operation in next_wave
+                        if isinstance(operation.get("id"), str)
+                    }
+                state["batch_active_ids"] = active_ids
+                state["pending_ids"] = set(active_ids)
+                state["pending_ids_by_tool"] = _pending_tool_ids(next_wave)
+                state["selected"] = {
+                    str(operation["tool_name"]) for operation in next_wave
+                    if isinstance(operation.get("tool_name"), str)
+                }
+                state["pending_bypass"] = bool(next_wave)
+                state["pending_prepared"] = bool(next_wave)
+                state["full_catalog"] = False
+                state["work_hop_cap"] = _FULL_CATALOG_HOP_CAP
+                state["write_succeeded"] = False
+                state["stop_tools"] = not bool(next_wave)
+                state["batch_completed"] = not bool(next_wave)
+                state["terminal_reason"] = "completed" if state["batch_completed"] else None
+                state["phase_instruction"] = None
+                _event(
+                    "approval_batch_write",
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    tool=short,
+                    count=state["approval_writes"],
+                    remaining=len(state.get("batch_pending", [])),
+                )
             elif (state.get("approval_chain") and short in _CHAINABLE_WRITES
                   and isinstance(structured_result.get("operation_receipt"), dict)):
                 receipt = structured_result["operation_receipt"]
@@ -822,8 +1105,11 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                 record_id = receipt.get("id")
                 if resource and isinstance(record_id, str):
                     state.setdefault("resolved_ids", {}).setdefault(resource, set()).add(record_id)
+                if resource == "provider":
+                    _invalidate_provider_catalog(session_id)
                 state["approval_writes"] = int(state.get("approval_writes", 0)) + 1
                 state["pending_bypass"] = False
+                state["chain_pending_confirmation"] = False
                 state["pending_ids"] = set()
                 state["pending_prepared"] = False
                 state["write_succeeded"] = False
@@ -868,6 +1154,7 @@ def _post_tool_call(*, tool_name: str = "", args: Any = None, result: Any = None
                     {key: row.get(key) for key in ("id", "name", "region") if row.get(key) is not None}
                     for row in rows if isinstance(row, dict)
                 ]
+                _set_provider_catalog(session_id, state["provider_catalog"])
                 _event(
                     "provider_catalog_loaded",
                     session_id=session_id,
@@ -1076,9 +1363,15 @@ def _tool_execution(*, tool_name: str = "", args: Any = None, next_call=None,
         return json.dumps({"error": "POLICY_UNAUTHORIZED_TOOL: only Cafe OS and voice-vocabulary tools are authorized."})
     effective_args = dict(args) if isinstance(args, dict) else args
     state = _state(session_id, turn_id)
-    if (isinstance(effective_args, dict) and state is not None and state.get("pending_bypass")
-            and len(state.get("pending_ids", set())) == 1):
-        pending_id = next(iter(state["pending_ids"]))
+    if isinstance(effective_args, dict) and state is not None and state.get("pending_bypass"):
+        short = _short_name(tool_name)
+        tool_pending_ids = list(state.get("pending_ids_by_tool", {}).get(short, []))
+        pending_id = tool_pending_ids[0] if len(tool_pending_ids) == 1 else None
+        if pending_id is None and len(state.get("pending_ids", set())) == 1:
+            pending_id = next(iter(state["pending_ids"]))
+    else:
+        pending_id = None
+    if isinstance(effective_args, dict) and isinstance(pending_id, str):
         if effective_args.get("confirmation_id") != pending_id:
             effective_args["confirmation_id"] = pending_id
             _event(
@@ -1115,24 +1408,7 @@ def _tool_execution(*, tool_name: str = "", args: Any = None, next_call=None,
             )
     if not callable(next_call):
         return json.dumps({"error": "POLICY_EXECUTION_UNAVAILABLE"})
-    result = next_call(effective_args)
-    short = _short_name(tool_name)
-    is_proposal = isinstance(effective_args, dict) and not isinstance(effective_args.get("confirmation_id"), str)
-    if (state is not None and state.get("approval_chain") and is_proposal
-            and short in _CHAINABLE_WRITES
-            and int(state.get("approval_writes", 0)) < _MAX_APPROVED_CHAIN_WRITES):
-        structured = _structured_result(result)
-        pending = structured.get("pending_confirmation") if isinstance(structured, dict) else None
-        if (isinstance(pending, dict) and pending.get("tool_name") == short
-                and isinstance(pending.get("id"), str)):
-            _event(
-                "approval_chain_auto_confirm",
-                session_id=session_id,
-                turn_id=turn_id,
-                tool=short,
-            )
-            return next_call({"confirmation_id": pending["id"]})
-    return result
+    return next_call(effective_args)
 
 
 def register(ctx) -> None:

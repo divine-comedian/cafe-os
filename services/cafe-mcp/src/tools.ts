@@ -35,6 +35,41 @@ function exactProposalSchema<T extends z.ZodRawShape>(shape: T, requiredFields: 
   });
 }
 
+const purchaseProposalSchema = exactProposalSchema({
+  provider_id: uuid.optional().describe("Existing provider UUID; use exactly one of provider_id or provider_name"),
+  provider_name: z.string().min(1).max(160).optional().describe(
+    "Exact provider name for a combined workflow proposal when its UUID is not available yet",
+  ),
+  green_coffee_lot_id: uuid.optional().describe(
+    "Existing lot UUID; use exactly one of green_coffee_lot_id or green_coffee_lot_name",
+  ),
+  green_coffee_lot_name: z.string().min(1).max(160).optional().describe(
+    "Exact lot name for a combined workflow proposal when its UUID is not available yet",
+  ),
+  purchased_at: z.string().date().nullable().optional().describe("Calendar date in YYYY-MM-DD format when known"),
+  received_weight_kg: decimal.optional().describe("Purchased green-coffee weight in kilograms"),
+  total_amount: nullableDecimal.optional(),
+  currency: z.string().optional().describe("ISO 4217 currency code; API default is MXN"),
+  payment_method: nullableText.optional(),
+  notes: nullableText.optional(),
+}, ["received_weight_kg"]).superRefine((value, context) => {
+  if (value.confirmation_id !== undefined) return;
+  if ((value.provider_id !== undefined) === (value.provider_name !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["provider_id"],
+      message: "Provide exactly one of provider_id or provider_name",
+    });
+  }
+  if ((value.green_coffee_lot_id !== undefined) === (value.green_coffee_lot_name !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["green_coffee_lot_id"],
+      message: "Provide exactly one of green_coffee_lot_id or green_coffee_lot_name",
+    });
+  }
+});
+
 const resourceRoutes = {
   provider: "/providers",
   purchase: "/purchases",
@@ -162,6 +197,46 @@ function arrayData(payload: unknown): Record<string, unknown>[] {
   return Array.isArray(value)
     ? value.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
     : [];
+}
+
+async function resolveExactName(
+  client: CafeApiPort,
+  resource: "provider" | "green_coffee_lot",
+  name: string,
+): Promise<string> {
+  const payload = await client.request(
+    "GET",
+    `${route(resource)}?limit=100&offset=0&name=${encodeURIComponent(name)}`,
+  );
+  const requested = normalizedName(name);
+  const exact = arrayData(payload).filter((row) =>
+    typeof row.name === "string" && normalizedName(row.name) === requested);
+  if (exact.length !== 1 || typeof exact[0].id !== "string") {
+    throw new Error(
+      `BATCH_REFERENCE_UNRESOLVED: expected exactly one ${resource} named ${name} after the approved prerequisite creates.`,
+    );
+  }
+  return exact[0].id;
+}
+
+async function resolvePurchaseReferences(
+  client: CafeApiPort,
+  stored: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const resolved = { ...stored };
+  if (typeof resolved.provider_name === "string") {
+    resolved.provider_id = await resolveExactName(client, "provider", resolved.provider_name);
+    delete resolved.provider_name;
+  }
+  if (typeof resolved.green_coffee_lot_name === "string") {
+    resolved.green_coffee_lot_id = await resolveExactName(
+      client,
+      "green_coffee_lot",
+      resolved.green_coffee_lot_name,
+    );
+    delete resolved.green_coffee_lot_name;
+  }
+  return resolved;
 }
 
 function payloadMeta(payload: unknown): Record<string, unknown> {
@@ -424,21 +499,14 @@ export function registerCafeTools(
     {
       title: "Cafe OS — Create purchase",
       description:
-        "Prepare an active purchase proposal without writing; never guess values. Purchase records have no status. After approval, call this same tool with only confirmation_id to execute the stored fields once. The receipt is authoritative; do not re-read.",
-      inputSchema: exactProposalSchema({
-        provider_id: uuid.optional(),
-        green_coffee_lot_id: uuid.optional(),
-        purchased_at: z.string().date().nullable().optional().describe("Calendar date in YYYY-MM-DD format when known"),
-        received_weight_kg: decimal.optional().describe("Purchased green-coffee weight in kilograms"),
-        total_amount: nullableDecimal.optional(),
-        currency: z.string().optional().describe("ISO 4217 currency code; API default is MXN"),
-        payment_method: nullableText.optional(),
-        notes: nullableText.optional(),
-      }, ["provider_id", "green_coffee_lot_id", "received_weight_kg"]),
+        "Prepare an active purchase proposal without writing; never guess values. Purchase records have no status. In a combined workflow that also proposes a new provider or lot, reference those prerequisite records by their exact proposed names; Cafe OS resolves their IDs only after the prerequisite creates succeed. After approval, call this same tool with only confirmation_id to execute the stored fields once. The receipt is authoritative; do not re-read.",
+      inputSchema: purchaseProposalSchema,
       annotations: writeAnnotations,
     },
-    async (input) => safely(() => pendingMutation(pending, "create_purchase", input, async (stored) =>
-      storedReceipt(await client.request("POST", "/purchases", stored), "create", "purchase"))),
+    async (input) => safely(() => pendingMutation(pending, "create_purchase", input, async (stored) => {
+      const resolved = await resolvePurchaseReferences(client, stored);
+      return storedReceipt(await client.request("POST", "/purchases", resolved), "create", "purchase");
+    })),
   );
 
   server.registerTool(

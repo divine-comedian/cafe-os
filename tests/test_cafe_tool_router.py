@@ -34,6 +34,7 @@ def _short_tool_name(entry):
 class ToolPolicyTests(unittest.TestCase):
     def setUp(self):
         MODULE._STATES.clear()
+        MODULE._PROVIDER_CATALOGS.clear()
         self.previous_mode = os.environ.get("CAFE_TOOL_VISIBILITY_MODE")
         os.environ["CAFE_TOOL_VISIBILITY_MODE"] = "full"
 
@@ -147,6 +148,19 @@ class ToolPolicyTests(unittest.TestCase):
             turn_id="provider-turn",
         ))
 
+        MODULE._llm_request(
+            request=request,
+            session_id="session",
+            turn_id="provider-follow-up",
+            api_request_id="request-2",
+        )
+        self.assertIsNone(MODULE._pre_tool_call(
+            tool_name="mcp__cafe_os__create_provider",
+            args={"name": "Monte Claro"},
+            session_id="session",
+            turn_id="provider-follow-up",
+        ))
+
     def test_glm_fallback_is_only_for_primary_availability_failures(self):
         common = {"provider": "openrouter", "model": "qwen/qwen3.8-flash"}
         rate_limit = MODULE._transform_api_error_classification(
@@ -167,6 +181,49 @@ class ToolPolicyTests(unittest.TestCase):
         self.assertFalse(billing["should_fallback"])
         self.assertIsNone(MODULE._transform_api_error_classification(
             provider="openrouter", model="z-ai/glm-5.3-flash", status_code=429,
+        ))
+
+    def test_provider_catalog_is_restored_from_conversation_history(self):
+        messages = [
+            {"role": "user", "content": "Check whether Finca Ejemplo already exists."},
+            {
+                "role": "assistant",
+                "tool_calls": [{
+                    "id": "catalog-call",
+                    "type": "function",
+                    "function": {
+                        "name": "mcp__cafe_os__query_records",
+                        "arguments": json.dumps({"resource": "provider", "limit": 100, "offset": 0}),
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "catalog-call",
+                "name": "mcp__cafe_os__query_records",
+                "content": json.dumps({
+                    "data": [{"id": "provider-id", "name": "Finca Norte", "region": "veracruz"}],
+                    "meta": {"match_count": 1, "applied_filters": {}},
+                }),
+            },
+            {"role": "assistant", "content": "Is this a separate provider?"},
+            {"role": "user", "content": "Yes, Finca Ejemplo is separate. Prepare it."},
+        ]
+        catalog = [
+            tool("mcp__cafe_os__query_records"),
+            tool("mcp__cafe_os__create_provider", {"name": {"type": "string"}}, ["name"]),
+        ]
+        MODULE._llm_request(
+            request={"messages": messages, "tools": catalog},
+            session_id="restored-session",
+            turn_id="follow-up",
+            api_request_id="request",
+        )
+        self.assertIsNone(MODULE._pre_tool_call(
+            tool_name="mcp__cafe_os__create_provider",
+            args={"name": "Finca Ejemplo"},
+            session_id="restored-session",
+            turn_id="follow-up",
         ))
 
     def test_natural_approval_phrases_resume_the_persisted_proposal(self):
@@ -192,27 +249,62 @@ class ToolPolicyTests(unittest.TestCase):
                     {"role": "assistant", "content": "Approve this workflow?"},
                     {"role": "user", "content": approval},
                 ]
-                self.assertEqual(
-                    MODULE._pending_from_messages(messages),
-                    ("create_green_coffee_lot", pending_id),
-                )
+                pending = MODULE._pending_from_messages(messages)
+                self.assertEqual(len(pending), 1)
+                self.assertEqual(pending[0]["tool_name"], "create_green_coffee_lot")
+                self.assertEqual(pending[0]["id"], pending_id)
 
         messages[-1] = {"role": "user", "content": "don't ship it yet"}
-        self.assertIsNone(MODULE._pending_from_messages(messages))
+        self.assertEqual(MODULE._pending_from_messages(messages), [])
 
     def test_one_approval_can_finish_listed_non_destructive_workflow(self):
-        pending_id = "11111111-1111-4111-8111-111111111111"
-        lot_id = "22222222-2222-4222-8222-222222222222"
-        purchase_id = "33333333-3333-4333-8333-333333333333"
+        provider_pending = "11111111-1111-4111-8111-111111111111"
+        lot_pending = "22222222-2222-4222-8222-222222222222"
+        purchase_pending = "33333333-3333-4333-8333-333333333333"
+        provider_id = "44444444-4444-4444-8444-444444444444"
+        lot_id = "55555555-5555-4555-8555-555555555555"
+        purchase_id = "66666666-6666-4666-8666-666666666666"
         messages = [
+            {"role": "user", "content": "Set up the provider, lot, and purchase."},
+            {
+                "role": "tool",
+                "name": "mcp__cafe_os__create_provider",
+                "content": json.dumps({
+                    "ok": True,
+                    "pending_confirmation": {
+                        "id": provider_pending,
+                        "tool_name": "create_provider",
+                        "canonical_arguments": {"name": "Finca Ejemplo", "region": "Veracruz"},
+                    },
+                }),
+            },
             {
                 "role": "tool",
                 "name": "mcp__cafe_os__create_green_coffee_lot",
                 "content": json.dumps({
                     "ok": True,
                     "pending_confirmation": {
-                        "id": pending_id,
+                        "id": lot_pending,
                         "tool_name": "create_green_coffee_lot",
+                        "canonical_arguments": {"name": "Lote Ejemplo", "origin": "Veracruz"},
+                    },
+                }),
+            },
+            {
+                "role": "tool",
+                "name": "mcp__cafe_os__create_purchase",
+                "content": json.dumps({
+                    "ok": True,
+                    "pending_confirmation": {
+                        "id": purchase_pending,
+                        "tool_name": "create_purchase",
+                        "canonical_arguments": {
+                            "provider_name": "Finca Ejemplo",
+                            "green_coffee_lot_name": "Lote Ejemplo",
+                            "received_weight_kg": 12,
+                            "total_amount": 2400,
+                            "currency": "MXN",
+                        },
                     },
                 }),
             },
@@ -227,6 +319,7 @@ class ToolPolicyTests(unittest.TestCase):
         ]
         catalog = [
             tool("mcp__cafe_os__query_records"),
+            tool("mcp__cafe_os__create_provider"),
             tool("mcp__cafe_os__create_green_coffee_lot"),
             tool("mcp__cafe_os__create_purchase"),
             tool("mcp__cafe_os__delete_record"),
@@ -241,116 +334,106 @@ class ToolPolicyTests(unittest.TestCase):
         )["request"]
         self.assertEqual(
             {_short_tool_name(entry) for entry in updated["tools"]},
-            {"create_green_coffee_lot"},
+            {"create_provider", "create_green_coffee_lot", "create_purchase"},
         )
+        system_text = "\n".join(
+            message["content"] for message in updated["messages"] if message["role"] == "system"
+        )
+        self.assertIn("one assistant tool-call batch", system_text)
 
-        initial_calls = []
+        calls = []
 
-        def confirm_lot(args):
-            initial_calls.append(args)
-            return {
+        provider_result = MODULE._tool_execution(
+            tool_name="mcp__cafe_os__create_provider",
+            args={"confirmation_id": "wrong-model-id"},
+            next_call=lambda args: calls.append(("provider", args)) or {
                 "ok": True,
                 "operation_receipt": {
-                    "operation": "create",
-                    "resource": "green_coffee_lot",
-                    "id": lot_id,
-                    "authoritative": True,
+                    "operation": "create", "resource": "provider",
+                    "id": provider_id, "authoritative": True,
                 },
-            }
-
-        lot_result = MODULE._tool_execution(
-            tool_name="mcp__cafe_os__create_green_coffee_lot",
-            args={"confirmation_id": "wrong-model-id"},
-            next_call=confirm_lot,
+            },
             session_id="session",
             turn_id="approved-workflow",
         )
-        self.assertEqual(initial_calls, [{"confirmation_id": pending_id}])
+        self.assertEqual(calls, [("provider", {"confirmation_id": provider_pending})])
+        MODULE._post_tool_call(
+            tool_name="mcp__cafe_os__create_provider",
+            args={"confirmation_id": provider_pending},
+            result=provider_result,
+            session_id="session",
+            turn_id="approved-workflow",
+        )
+        lot_result = MODULE._tool_execution(
+            tool_name="mcp__cafe_os__create_green_coffee_lot",
+            args={"confirmation_id": "wrong-model-id"},
+            next_call=lambda args: calls.append(("lot", args)) or {
+                "ok": True,
+                "operation_receipt": {
+                    "operation": "create", "resource": "green_coffee_lot",
+                    "id": lot_id, "authoritative": True,
+                },
+            },
+            session_id="session",
+            turn_id="approved-workflow",
+        )
         MODULE._post_tool_call(
             tool_name="mcp__cafe_os__create_green_coffee_lot",
-            args={"confirmation_id": pending_id},
+            args={"confirmation_id": lot_pending},
             result=lot_result,
             session_id="session",
             turn_id="approved-workflow",
         )
         state = MODULE._state("session", "approved-workflow")
-        self.assertTrue(state["approval_chain"])
-        self.assertTrue(state["full_catalog"])
-        self.assertFalse(state["stop_tools"])
+        self.assertTrue(state["pending_bypass"])
+        self.assertTrue(state["batch_approval"])
+        self.assertEqual(state["selected"], {"create_purchase"})
+        self.assertIn(provider_id, state["resolved_ids"]["provider"])
         self.assertIn(lot_id, state["resolved_ids"]["green_coffee_lot"])
-
-        continued = MODULE._llm_request(
-            request=request,
-            session_id="session",
-            turn_id="approved-workflow",
-            api_request_id="request-2",
-            api_call_count=1,
-        )["request"]
-        self.assertIn("create_purchase", {_short_tool_name(entry) for entry in continued["tools"]})
-        system_text = "\n".join(
-            message["content"] for message in continued["messages"] if message["role"] == "system"
-        )
-        self.assertIn("without asking again", system_text)
-
-        follow_on_calls = []
-
-        def create_purchase(args):
-            follow_on_calls.append(args)
-            if len(follow_on_calls) == 1:
-                return {
-                    "ok": True,
-                    "pending_confirmation": {
-                        "id": "44444444-4444-4444-8444-444444444444",
-                        "tool_name": "create_purchase",
-                    },
-                }
-            return {
-                "ok": True,
-                "operation_receipt": {
-                    "operation": "create",
-                    "resource": "purchase",
-                    "id": purchase_id,
-                    "status": "draft",
-                    "authoritative": True,
-                },
-            }
 
         purchase_result = MODULE._tool_execution(
             tool_name="mcp__cafe_os__create_purchase",
-            args={
-                "provider_id": "55555555-5555-4555-8555-555555555555",
-                "green_coffee_lot_id": lot_id,
-                "received_weight_kg": 20,
-                "total_cost": 15_000,
-                "currency": "MXN",
-            },
-            next_call=create_purchase,
-            session_id="session",
-            turn_id="approved-workflow",
-        )
-        self.assertEqual(len(follow_on_calls), 2)
-        self.assertEqual(
-            follow_on_calls[1],
-            {"confirmation_id": "44444444-4444-4444-8444-444444444444"},
-        )
-        self.assertEqual(purchase_result["operation_receipt"]["id"], purchase_id)
-
-        destructive_calls = []
-        destructive_result = MODULE._tool_execution(
-            tool_name="mcp__cafe_os__delete_record",
-            args={"resource": "purchase", "id": purchase_id},
-            next_call=lambda args: destructive_calls.append(args) or {
+            args={"confirmation_id": "wrong-model-id"},
+            next_call=lambda args: calls.append(("purchase", args)) or {
                 "ok": True,
-                "pending_confirmation": {
-                    "id": "66666666-6666-4666-8666-666666666666",
-                    "tool_name": "delete_record",
+                "operation_receipt": {
+                    "operation": "create", "resource": "purchase",
+                    "id": purchase_id, "authoritative": True,
                 },
             },
             session_id="session",
             turn_id="approved-workflow",
         )
-        self.assertEqual(len(destructive_calls), 1)
-        self.assertIn("pending_confirmation", destructive_result)
+        self.assertEqual(
+            calls[-1],
+            ("purchase", {"confirmation_id": purchase_pending}),
+        )
+        self.assertEqual(purchase_result["operation_receipt"]["id"], purchase_id)
+        MODULE._post_tool_call(
+            tool_name="mcp__cafe_os__create_purchase",
+            args={"confirmation_id": purchase_pending},
+            result=purchase_result,
+            session_id="session",
+            turn_id="approved-workflow",
+        )
+        state = MODULE._state("session", "approved-workflow")
+        self.assertFalse(state["pending_bypass"])
+        self.assertTrue(state["batch_completed"])
+        self.assertTrue(state["stop_tools"])
+        self.assertEqual(len(state["batch_receipts"]), 3)
+
+        final_request = MODULE._llm_request(
+            request=request,
+            session_id="session",
+            turn_id="approved-workflow",
+            api_request_id="request-3",
+            api_call_count=2,
+        )["request"]
+        self.assertEqual(final_request["tools"], [])
+        final_system_text = "\n".join(
+            message["content"] for message in final_request["messages"] if message["role"] == "system"
+        )
+        self.assertIn("operation receipts", final_system_text)
 
 
 if __name__ == "__main__":

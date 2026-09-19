@@ -24,7 +24,8 @@ describe("scenario catalog", () => {
   });
 
   it("positively exercises every Cafe OS MCP tool", () => {
-    const required = new Set(scenarios.flatMap((scenario) => scenario.turns.flatMap((turn) => turn.expect.requiredTools ?? [])));
+    const required = new Set([...scenarios, ...partialRequestScenarios]
+      .flatMap((scenario) => scenario.turns.flatMap((turn) => turn.expect.requiredTools ?? [])));
     expect([...required].sort()).toEqual([...cafeTools].sort());
   });
 
@@ -47,9 +48,9 @@ describe("scenario catalog", () => {
   });
 
   it("covers incomplete requests, required follow-ups, and optional omissions", () => {
-    expect(partialRequestScenarios).toHaveLength(8);
-    expect(new Set(partialRequestScenarios.map((scenario) => scenario.id)).size).toBe(8);
-    expect(partialRequestScenarios.flatMap((scenario) => scenario.turns)).toHaveLength(21);
+    expect(partialRequestScenarios).toHaveLength(9);
+    expect(new Set(partialRequestScenarios.map((scenario) => scenario.id)).size).toBe(9);
+    expect(partialRequestScenarios.flatMap((scenario) => scenario.turns)).toHaveLength(24);
     expect(partialRequestScenarios.some((scenario) => scenario.id.includes("voice_note"))).toBe(true);
     const turns = partialRequestScenarios.flatMap((scenario) => scenario.turns);
     expect(turns.some((turn) => (turn.expect.routerRequiresUserInput?.length ?? 0) > 0)).toBe(true);

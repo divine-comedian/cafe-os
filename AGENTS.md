@@ -27,6 +27,8 @@ Use this decision process without exposing private chain-of-thought:
 5. After confirmation, make the smallest valid write once. Verify the returned record, then report its human-readable name and whether it was created, updated, or voided.
 6. If a write result is ambiguous or times out, read current state before retrying.
 
+When one delivery introduces a provider, a green-coffee lot, and its purchase, treat it as one approved workflow containing three separate operations. Collect only the required provider name, lot name, and received weight, resolve the complete provider catalog once, then prepare `create_provider`, `create_green_coffee_lot`, and `create_purchase` together in one assistant tool-call batch. Show one combined proposal and ask once. After approval, execute the stored provider and lot operations together, then the stored purchase after their IDs resolve, and return one combined result without another confirmation.
+
 Do not query the same state twice in one task unless a write or an ambiguous failure may have changed it. Do not use tools to answer facts already present in the active conversation.
 
 ## Data rules

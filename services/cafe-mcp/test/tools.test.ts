@@ -114,6 +114,58 @@ describe("Cafe OS MCP tools", () => {
     }]);
   });
 
+  it("resolves exact proposed names when a purchase completes an approved workflow", async () => {
+    const purchase = {
+      provider_name: "Finca Ejemplo",
+      green_coffee_lot_name: "Lote Ejemplo 2026",
+      purchased_at: "2026-09-19",
+      received_weight_kg: 15,
+      total_amount: 10_000,
+      currency: "MXN",
+    };
+    const prepared = await client.callTool({
+      name: "create_purchase",
+      arguments: purchase,
+    });
+    expect(prepared.isError).not.toBe(true);
+    expect(api.calls).toHaveLength(0);
+    const confirmationId = ((prepared.structuredContent as Record<string, unknown> | undefined)
+      ?.pending_confirmation as Record<string, unknown>).id;
+
+    const providerId = crypto.randomUUID();
+    const lotId = crypto.randomUUID();
+    const purchaseId = crypto.randomUUID();
+    api.responses.push(
+      { data: [{ id: providerId, name: "Finca Ejemplo" }] },
+      { data: [{ id: lotId, name: "Lote Ejemplo 2026" }] },
+      { data: { id: purchaseId, received_weight_kg: "15.000" } },
+    );
+    const saved = await client.callTool({
+      name: "create_purchase",
+      arguments: { confirmation_id: confirmationId },
+    });
+    expect(saved.isError).not.toBe(true);
+    expect(api.calls).toEqual([
+      { method: "GET", route: "/providers?limit=100&offset=0&name=Finca%20Ejemplo", body: undefined },
+      { method: "GET", route: "/green-coffee-lots?limit=100&offset=0&name=Lote%20Ejemplo%202026", body: undefined },
+      {
+        method: "POST",
+        route: "/purchases",
+        body: {
+          provider_id: providerId,
+          green_coffee_lot_id: lotId,
+          purchased_at: "2026-09-19",
+          received_weight_kg: 15,
+          total_amount: 10_000,
+          currency: "MXN",
+        },
+      },
+    ]);
+    expect(saved.structuredContent).toMatchObject({
+      operation_receipt: { operation: "create", resource: "purchase", authoritative: true },
+    });
+  });
+
   it("does not expose draft or confirmed status on any record", async () => {
     const purchase = await client.callTool({
       name: "create_purchase",

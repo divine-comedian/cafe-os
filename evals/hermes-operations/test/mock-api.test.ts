@@ -37,4 +37,5 @@ describe("MockCafeApi", () => {
     });
     expect(api.operations.map((operation) => operation.method)).toEqual(["PATCH", "PUT"]);
   });
+
 });

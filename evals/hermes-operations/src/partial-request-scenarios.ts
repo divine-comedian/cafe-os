@@ -3,6 +3,56 @@ import type { EvalScenario } from "./types.ts";
 
 export const partialRequestScenarios: EvalScenario[] = [
   {
+    id: "partial_en_new_provider_lot_purchase_intake",
+    locale: "en",
+    description: "Collect one missing lot name, then create a provider, lot, and purchase through one proposal and one approval.",
+    turns: [
+      {
+        prompt: "We received 15 kg from a new provider called Finca Ejemplo in Veracruz on 2026-09-19 and paid MXN 10,000. The lot is also from Veracruz, but I forgot to give you its name. Set up the provider, lot, and purchase.",
+        expect: {
+          allowedTools: ["query_records"], maxToolCalls: 1, maxApiCalls: 2, mutationCount: 0,
+          responsePatterns: ["lot.*name|name.*lot"],
+        },
+      },
+      {
+        prompt: "Finca Ejemplo is definitely a separate new provider. The lot is called Lote Ejemplo 2026. Prepare the complete intake now.",
+        expect: {
+          requiredTools: ["create_provider", "create_green_coffee_lot", "create_purchase"],
+          allowedTools: ["query_records", "create_provider", "create_green_coffee_lot", "create_purchase"],
+          minToolCalls: 3, maxToolCalls: 4, maxApiCalls: 3, mutationCount: 0,
+          responsePatterns: ["Finca Ejemplo", "Lote Ejemplo 2026", "15(?:\\.0+)?\\s*kg", "10[,.]?000", "confirm"],
+          toolCallContains: [
+            { name: "create_provider", arguments: { name: "Finca Ejemplo", region: "Veracruz" } },
+            { name: "create_green_coffee_lot", arguments: { name: "Lote Ejemplo 2026", origin: "Veracruz" } },
+            { name: "create_purchase", arguments: {
+              provider_name: "Finca Ejemplo",
+              green_coffee_lot_name: "Lote Ejemplo 2026",
+              purchased_at: "2026-09-19",
+              received_weight_kg: 15,
+              total_amount: 10_000,
+              currency: "MXN",
+            } },
+          ],
+          terminalReason: "needs_confirmation",
+        },
+      },
+      {
+        prompt: "Approved. Record that complete intake exactly once.",
+        expect: {
+          requiredTools: ["create_provider", "create_green_coffee_lot", "create_purchase"],
+          allowedTools: ["create_provider", "create_green_coffee_lot", "create_purchase"],
+          minToolCalls: 3, maxToolCalls: 3, maxApiCalls: 3, mutationCount: 3,
+          confirmationTools: ["create_provider", "create_green_coffee_lot", "create_purchase"], terminalReason: "completed",
+          stateContains: [
+            { table: "providers", fields: { name: "Finca Ejemplo", region: "veracruz" } },
+            { table: "green_coffee_lots", fields: { name: "Lote Ejemplo 2026", origin: "veracruz" } },
+            { table: "purchases", fields: { received_weight_kg: "15", total_amount: "10000", currency: "MXN" } },
+          ],
+        },
+      },
+    ],
+  },
+  {
     id: "partial_es_green_lot_optional_variety",
     locale: "es-MX",
     description: "Create a lot proposal without interrogating the operator for optional variety, then confirm it.",
