@@ -1,0 +1,12 @@
+[Unit]
+Description=Check origin/main for Cafe OS deployments
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=2min
+RandomizedDelaySec=15s
+Persistent=true
+Unit=cafe-os-auto-deploy.service
+
+[Install]
+WantedBy=timers.target

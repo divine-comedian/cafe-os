@@ -59,6 +59,8 @@ The user service plus systemd lingering is intentional on this headless host: it
 - `scripts/setup-hermes-eval.sh` — isolated no-channel Hermes profile for semantic evals.
 - `scripts/db.sh` — password-free shell into the local Supabase Postgres container.
 - `scripts/cafe-api.sh` — build and operate the loopback-only TypeScript API.
+- `scripts/auto-deploy-cafe-api.sh` — safely fast-forward and redeploy both loopback API instances after a push to `origin/main`.
+- `scripts/install-cafe-auto-deploy.sh` — install the headless user-level deployment timer.
 - `services/cafe-api/` — Fastify REST API, Auth token validation, static UI hosting, and tests.
 - `services/cafe-web/` — responsive React operations UI for providers, purchases, lots, and roasts.
 - `services/cafe-mcp/` — compact TypeScript MCP adapter for trusted Hermes profiles.

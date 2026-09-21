@@ -1,5 +1,6 @@
 services:
   cafe-api:
+    image: cafe-os-api:${CAFE_API_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: services/cafe-api/Dockerfile

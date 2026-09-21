@@ -14,6 +14,30 @@ The service listens on `127.0.0.1:8100`. It is not exposed publicly. The local C
 ./scripts/cafe-api.sh stop
 ```
 
+## Automatic deployment from `origin/main`
+
+On the headless production host, install the user-level pull deployer once:
+
+```bash
+./scripts/install-cafe-auto-deploy.sh
+```
+
+The timer checks `origin/main` about every two minutes. When a new commit is
+available, it requires a clean, fast-forwardable checkout, runs the API test
+suite, builds a versioned image, and refreshes the API instances on loopback
+ports `8100` and `8101`. It refuses dirty or divergent checkouts rather than
+overwriting local work. Follow a deployment with:
+
+```bash
+journalctl --user -u cafe-os-auto-deploy.service -f
+```
+
+Disable automatic deployment with:
+
+```bash
+systemctl --user disable --now cafe-os-auto-deploy.timer
+```
+
 `scripts/configure-cafe-api.sh` creates `runtime/cafe-api.env` from the local Supabase deployment and generates a stable API bearer token. The ignored file is mode `0600`; neither credential is printed.
 
 Health and OpenAPI endpoints do not require authentication:

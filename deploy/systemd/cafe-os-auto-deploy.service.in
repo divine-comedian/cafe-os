@@ -1,0 +1,11 @@
+[Unit]
+Description=Fast-forward and deploy Cafe OS from origin/main
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@PROJECT_ROOT@
+ExecStart=@PROJECT_ROOT@/scripts/auto-deploy-cafe-api.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Nice=10
