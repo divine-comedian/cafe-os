@@ -2,6 +2,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { CafeApi } from "./api";
+import { RoastCurves, RoastHistory } from "./RoastExplorer";
 import { greenCoffeeInventory, roastMetrics, weightedGreenUnitCost } from "./calculations";
 import type { CoffeeLot, EntryKind, OperationsData, Provider, Purchase, RoastBatch, View } from "./types";
 
@@ -244,11 +245,11 @@ function RoastWorkspace({ data, storageKey, onSave, onEditRoast }: { data: Opera
       <button className={tab === "history" ? "roast-tab--active" : ""} onClick={() => setTab("history")}>Historial</button>
       <button className={tab === "panel" ? "roast-tab--active" : ""} onClick={() => setTab("panel")}>Panel</button>
     </nav>
-    {tab === "new" ? <NewRoastForm data={data} storageKey={storageKey} onSave={async (payload) => { await onSave(payload); setTab("history"); }} /> : tab === "history" ? <Records view="roasts" data={data} onEditPurchase={() => undefined} onEditRoast={onEditRoast} /> : <RoastPanel data={data} />}
+    {tab === "new" ? <NewRoastForm data={data} storageKey={storageKey} onSave={async (payload) => { await onSave(payload); setTab("history"); }} /> : tab === "history" ? <RoastHistory data={data} onEditRoast={onEditRoast} /> : <RoastPanel data={data} onEditRoast={onEditRoast} />}
   </section>;
 }
 
-function RoastPanel({ data }: { data: OperationsData }) {
+function RoastPanel({ data, onEditRoast }: { data: OperationsData; onEditRoast: (roast: RoastBatch) => void }) {
   const active = data.roasts.filter((roast) => !roast.voided_at);
   const rated = active.filter((roast) => roast.sensory_rating !== null);
   const withCheckpoints = active.filter((roast) => roast.checkpoints.length > 0);
@@ -256,7 +257,7 @@ function RoastPanel({ data }: { data: OperationsData }) {
   return <section className="roast-panel-grid">
     <Stat label="Tostados registrados" value={String(active.length)} detail={`${withCheckpoints.length} con puntos de control`} tone="ink" />
     <Stat label="Calificación promedio" value={averageRating === null ? "—" : `${averageRating.toFixed(1)} / 5`} detail={`${rated.length} tostados calificados`} tone="gold" />
-    <article className="panel roast-panel-note"><p className="eyebrow">Siguiente iteración</p><h2>Curvas por tostado</h2><p>Los puntos de temperatura, tiro y gas ya quedan estructurados para construir las curvas comparativas del panel.</p></article>
+    <RoastCurves data={data} onEditRoast={onEditRoast} />
   </section>;
 }
 
